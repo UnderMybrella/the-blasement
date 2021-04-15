@@ -1,10 +1,10 @@
 import dev.brella.kornea.blaseball.BlaseballApi
 import dev.brella.kornea.blaseball.GameID
 import dev.brella.kornea.blaseball.chronicler.ChroniclerApi
-import dev.brella.ktornea.apache.KtorneaApache
 import dev.brella.ktornea.common.installGranularHttp
 import io.ktor.application.*
 import io.ktor.client.*
+import io.ktor.client.engine.okhttp.*
 import io.ktor.client.features.*
 import io.ktor.client.features.compression.*
 import io.ktor.client.features.cookies.*
@@ -18,23 +18,26 @@ import io.ktor.response.*
 import io.ktor.routing.get
 import io.ktor.routing.routing
 import io.ktor.serialization.*
-import io.ktor.server.engine.embeddedServer
-import io.ktor.server.netty.Netty
 import io.ktor.util.*
 import io.ktor.websocket.*
-import kotlinx.coroutines.GlobalScope
-import kotlinx.coroutines.channels.BroadcastChannel
-import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.runBlocking
 import kotlinx.html.*
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.encodeToJsonElement
 import kotlinx.serialization.json.put
+import websocket.BlasementDweller
 import java.time.Duration
+import kotlin.random.Random
+import kotlin.system.exitProcess
+import kotlin.system.measureNanoTime
+import kotlin.time.ExperimentalTime
+import kotlin.time.measureTime
+import kotlin.time.nanoseconds
 
 fun HTML.index() {
     head {
@@ -49,6 +52,7 @@ fun HTML.index() {
 
 fun main(args: Array<String>) = io.ktor.server.netty.EngineMain.main(args)
 
+@OptIn(ExperimentalTime::class)
 fun Application.module(testing: Boolean = false) {
     val json = Json { }
 
@@ -69,7 +73,7 @@ fun Application.module(testing: Boolean = false) {
         masking = false
     }
 
-    val client = HttpClient(KtorneaApache) {
+    val client = HttpClient(OkHttp) {
         installGranularHttp()
 
         install(ContentEncoding) {
@@ -92,8 +96,7 @@ fun Application.module(testing: Boolean = false) {
     val blaseballApi = BlaseballApi(client)
     val chroniclerApi = ChroniclerApi(client)
 
-    val liveData = LiveData(blaseballApi, chroniclerApi, GlobalScope)
-    val blaseballFeed = BlaseballFeed(blaseballApi, chroniclerApi, GlobalScope)
+    val blasement = TheBlasement(client, blaseballApi, chroniclerApi)
 
     routing {
         get("/random") {
@@ -115,7 +118,7 @@ fun Application.module(testing: Boolean = false) {
             val day = call.parameters["day"]?.toIntOrNull() ?: return@get call.respond(HttpStatusCode.BadRequest)
             val game = call.parameters["game"] ?: return@get call.respond(HttpStatusCode.BadRequest)
 
-            val games = liveData.getGame(season, day, GameID(game)) ?: return@get call.respond(HttpStatusCode.InternalServerError)
+            val games = blasement.liveData.getGame(season - 1, day - 1, GameID(game)) ?: return@get call.respond(HttpStatusCode.InternalServerError)
 
             call.respondHtml {
                 body {
@@ -143,11 +146,12 @@ fun Application.module(testing: Boolean = false) {
         }
 
         get("/{season}/{day}/{game}/listen") {
-            val season = call.parameters["season"]?.toIntOrNull() ?: return@get call.respond(HttpStatusCode.BadRequest)
-            val day = call.parameters["day"]?.toIntOrNull() ?: return@get call.respond(HttpStatusCode.BadRequest)
+            val season = call.parameters["season"]?.toIntOrNull()?.minus(1) ?: return@get call.respond(HttpStatusCode.BadRequest)
+            val day = call.parameters["day"]?.toIntOrNull()?.minus(1) ?: return@get call.respond(HttpStatusCode.BadRequest)
             val game = call.parameters["game"] ?: return@get call.respond(HttpStatusCode.BadRequest)
 
-            call.respondText(contentType = ContentType.parse("text/html"), text = """
+            call.respondText(
+                contentType = ContentType.parse("text/html"), text = """
               <!DOCTYPE html>
               <meta charset="utf-8" />
               <title>WebSocket Test</title>
@@ -212,7 +216,25 @@ fun Application.module(testing: Boolean = false) {
               <h2>WebSocket Test</h2>
             
               <div id="output"></div>
-            """.trimIndent())
+            """.trimIndent()
+            )
+        }
+
+        val clients: MutableList<BlasementDweller> = ArrayList()
+
+        webSocket("/connect") {
+            println("New generic client $this")
+            val dweller = BlasementDweller(blasement, json, this)
+            try {
+                clients.add(dweller)
+                dweller.join()
+                println("Closed!")
+            } catch (th: Throwable) {
+                th.printStackTrace()
+                throw th
+            } finally {
+                clients.remove(dweller)
+            }
         }
 
         webSocket("/{season}/{day}/{game}/listen") {
@@ -223,13 +245,13 @@ fun Application.module(testing: Boolean = false) {
             val game = call.parameters["game"]
                        ?: return@webSocket close(CloseReason(CloseReason.Codes.CANNOT_ACCEPT, "No game provided"))
 
-            val localGame = liveData.getLocalGame(season, day, GameID(game))
+            val localGame = blasement.liveData.getLocalGame(season, day, GameID(game))
                             ?: return@webSocket close(CloseReason(CloseReason.Codes.INTERNAL_ERROR, "Game not cached / locally stored"))
 
             println("New client accepted: $localGame")
 
             try {
-                val globalFeed = blaseballFeed.globalFeedFlow.onEach { feedEvent ->
+                val globalFeed = blasement.globalFeed.flow.onEach { feedEvent ->
                     send(json.encodeToString(buildJsonObject {
                         put("type", "FEED_EVENT")
                         put("data", json.decodeFromString(json.encodeToString(feedEvent)))
@@ -251,5 +273,61 @@ fun Application.module(testing: Boolean = false) {
                 throw th
             }
         }
+    }
+
+    val testing = listOf(
+        "Progression via Ranges" to BlaseballFeedEventTypeProgression,
+        "Progression via List" to BlaseballFeedEventTypeProgressionAsCopiedList
+    )
+
+    val testingOperations = listOf<Pair<String, (iterable: Iterable<Int>) -> Any?>>(
+        "Sum" to { it.sum() },
+        "Avg" to { it.average() },
+        "Count" to { it.count() },
+        "Rolling Average" to { it.fold(0) { rolling, element -> (rolling + element) / 2 } }
+    )
+
+    runBlocking {
+        val testingResults = testing.associate { (name) -> name to testingOperations.associateTo(HashMap()) { (name) -> name to 0.nanoseconds } }.toSortedMap()
+
+        val random = Random
+
+        repeat(10) { round ->
+            println("==Round ${round + 1}==")
+
+            val iterationCount = random.nextInt(100, 1000)
+
+            val testingRound = testing.associateWith { ArrayList(testingOperations) }
+
+            while (testingRound.values.any { it.isNotEmpty() }) {
+                val randomKey = testingRound.keys.random(random)
+                val randomTest = testingRound.getValue(randomKey).run { random(random).also(this::remove) }
+                print("Testing ${randomKey.first} - ${randomTest.first} ($iterationCount rounds)... ")
+
+                var taken = 0.nanoseconds
+
+                randomTest.let { (_, test) ->
+                    randomKey.let { (_, iterable) ->
+                        repeat(iterationCount) {
+                            taken += measureTime { test(iterable) }
+                        }
+                    }
+                }
+
+                println("Done! Took $taken")
+
+                testingResults.getValue(randomKey.first).compute(randomTest.first) { _, takenSoFar -> takenSoFar?.plus(taken) ?: taken }
+
+                delay(random.nextLong(100, 400))
+            }
+        }
+
+        println("==Results==")
+        testingResults.entries.forEachIndexed { index, (name, results) ->
+            println("\t${index + 1}) $name")
+            results.entries.forEachIndexed { index, (testName, duration) -> println("\t\t${index + 1}) $testName: $duration") }
+        }
+
+        exitProcess(1)
     }
 }

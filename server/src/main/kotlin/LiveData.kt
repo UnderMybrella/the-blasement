@@ -6,13 +6,11 @@ import dev.brella.kornea.blaseball.beans.BlaseballDatabaseGame
 import dev.brella.kornea.blaseball.beans.BlaseballStreamData
 import dev.brella.kornea.blaseball.beans.BlaseballStreamDataSchedule
 import dev.brella.kornea.blaseball.chronicler.ChroniclerApi
-import dev.brella.kornea.toolkit.common.isNull
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.actor
 import kotlinx.coroutines.channels.receiveOrNull
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -42,7 +40,6 @@ class LiveData(val blaseballApi: BlaseballApi, val chroniclerApi: ChroniclerApi,
             }
         }
     }
-
     val secondUpdateJob = scope.launch(context) {
         var last: BlaseballStreamData? = null
 
@@ -66,12 +63,16 @@ class LiveData(val blaseballApi: BlaseballApi, val chroniclerApi: ChroniclerApi,
         }
     }
 
+    var date: BlaseballDate? = null
+
     val parsingJob = scope.actor<BlaseballStreamData>(context, Channel.UNLIMITED) {
         while (isActive) {
             val update = receiveOrNull() ?: break
             val gamesData = update.games ?: continue
-            val dayKey = (gamesData.sim.season + 1 shl 8) or (gamesData.sim.day + 1)
-            val gamesForToday = games.computeIfAbsent(dayKey) { HashMap() }
+
+            val date = BlaseballDate(gamesData.sim.season, gamesData.sim.day)
+            this@LiveData.date = date
+            val gamesForToday = games.computeIfAbsent(date.data) { HashMap() }
 
             gamesData.schedule.forEach { game ->
                 val thisGame = gamesForToday.computeIfAbsent(GameID(game.id.id)) { BlaseballUpdatingGame() }

@@ -19,7 +19,6 @@ class BlaseballUpdatingGame {
     suspend fun issueUpdate(schedule: BlaseballStreamDataSchedule) {
         semaphore.withReadPermit { if (schedule.playCount in gameUpdates.indices && gameUpdates[schedule.playCount] != null) return }
 
-
         val emitted = semaphore.withWritePermit {
             val emitted = _updateLog.tryEmit(schedule)
 
