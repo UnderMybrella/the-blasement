@@ -34,10 +34,10 @@ import websocket.BlasementDweller
 import java.time.Duration
 import kotlin.random.Random
 import kotlin.system.exitProcess
-import kotlin.system.measureNanoTime
 import kotlin.time.ExperimentalTime
 import kotlin.time.measureTime
 import kotlin.time.nanoseconds
+import kotlin.time.seconds
 
 fun HTML.index() {
     head {
@@ -96,29 +96,19 @@ fun Application.module(testing: Boolean = false) {
     val blaseballApi = BlaseballApi(client)
     val chroniclerApi = ChroniclerApi(client)
 
-    val blasement = TheBlasement(client, blaseballApi, chroniclerApi)
+    val blasement = TheBlasement(json, client, blaseballApi, chroniclerApi)
 
     routing {
-        get("/random") {
-            val simData = blaseballApi.getSimulationData()
-            val gamesToday = blaseballApi.getGamesByDate(season = simData.season, day = simData.day)
+        get("/random/{following...}") {
+            val gamesToday = blasement.gamesToday()
 
-            call.respondRedirect("/${simData.season + 1}/${simData.day + 1}/${gamesToday.random().id.id}")
+            call.respondRedirect("/${gamesToday.random().id.id}${call.parameters.getAll("following")?.joinToString("/", prefix = "/") ?: ""}")
         }
 
-        get("/random/listen") {
-            val simData = blaseballApi.getSimulationData()
-            val gamesToday = blaseballApi.getGamesByDate(season = simData.season, day = simData.day)
-
-            call.respondRedirect("/${simData.season + 1}/${simData.day + 1}/${gamesToday.random().id.id}/listen")
-        }
-
-        get("/{season}/{day}/{game}") {
-            val season = call.parameters["season"]?.toIntOrNull() ?: return@get call.respond(HttpStatusCode.BadRequest)
-            val day = call.parameters["day"]?.toIntOrNull() ?: return@get call.respond(HttpStatusCode.BadRequest)
+        get("/{game}") {
             val game = call.parameters["game"] ?: return@get call.respond(HttpStatusCode.BadRequest)
 
-            val games = blasement.liveData.getGame(season - 1, day - 1, GameID(game)) ?: return@get call.respond(HttpStatusCode.InternalServerError)
+            val games = blasement.liveData.getGame(GameID(game)) ?: return@get call.respond(HttpStatusCode.InternalServerError)
 
             call.respondHtml {
                 body {
@@ -145,9 +135,7 @@ fun Application.module(testing: Boolean = false) {
             }
         }
 
-        get("/{season}/{day}/{game}/listen") {
-            val season = call.parameters["season"]?.toIntOrNull()?.minus(1) ?: return@get call.respond(HttpStatusCode.BadRequest)
-            val day = call.parameters["day"]?.toIntOrNull()?.minus(1) ?: return@get call.respond(HttpStatusCode.BadRequest)
+        get("/{game}/listen") {
             val game = call.parameters["game"] ?: return@get call.respond(HttpStatusCode.BadRequest)
 
             call.respondText(
@@ -157,7 +145,7 @@ fun Application.module(testing: Boolean = false) {
               <title>WebSocket Test</title>
               <script language="javascript" type="text/javascript">
             
-              var wsUri = "ws://" + new URL(document.URL).host + "/$season/$day/$game/listen";
+              var wsUri = "ws://" + new URL(document.URL).host + "/$game/listen";
               var output;
             
               function init()
@@ -237,15 +225,11 @@ fun Application.module(testing: Boolean = false) {
             }
         }
 
-        webSocket("/{season}/{day}/{game}/listen") {
-            val season = call.parameters["season"]?.toIntOrNull()
-                         ?: return@webSocket close(CloseReason(CloseReason.Codes.CANNOT_ACCEPT, "No season provided"))
-            val day = call.parameters["day"]?.toIntOrNull()
-                      ?: return@webSocket close(CloseReason(CloseReason.Codes.CANNOT_ACCEPT, "No day provided"))
+        webSocket("/{game}/listen") {
             val game = call.parameters["game"]
                        ?: return@webSocket close(CloseReason(CloseReason.Codes.CANNOT_ACCEPT, "No game provided"))
 
-            val localGame = blasement.liveData.getLocalGame(season, day, GameID(game))
+            val localGame = blasement.liveData.getLocalGame(GameID(game))
                             ?: return@webSocket close(CloseReason(CloseReason.Codes.INTERNAL_ERROR, "Game not cached / locally stored"))
 
             println("New client accepted: $localGame")
@@ -273,61 +257,5 @@ fun Application.module(testing: Boolean = false) {
                 throw th
             }
         }
-    }
-
-    val testing = listOf(
-        "Progression via Ranges" to BlaseballFeedEventTypeProgression,
-        "Progression via List" to BlaseballFeedEventTypeProgressionAsCopiedList
-    )
-
-    val testingOperations = listOf<Pair<String, (iterable: Iterable<Int>) -> Any?>>(
-        "Sum" to { it.sum() },
-        "Avg" to { it.average() },
-        "Count" to { it.count() },
-        "Rolling Average" to { it.fold(0) { rolling, element -> (rolling + element) / 2 } }
-    )
-
-    runBlocking {
-        val testingResults = testing.associate { (name) -> name to testingOperations.associateTo(HashMap()) { (name) -> name to 0.nanoseconds } }.toSortedMap()
-
-        val random = Random
-
-        repeat(10) { round ->
-            println("==Round ${round + 1}==")
-
-            val iterationCount = random.nextInt(100, 1000)
-
-            val testingRound = testing.associateWith { ArrayList(testingOperations) }
-
-            while (testingRound.values.any { it.isNotEmpty() }) {
-                val randomKey = testingRound.keys.random(random)
-                val randomTest = testingRound.getValue(randomKey).run { random(random).also(this::remove) }
-                print("Testing ${randomKey.first} - ${randomTest.first} ($iterationCount rounds)... ")
-
-                var taken = 0.nanoseconds
-
-                randomTest.let { (_, test) ->
-                    randomKey.let { (_, iterable) ->
-                        repeat(iterationCount) {
-                            taken += measureTime { test(iterable) }
-                        }
-                    }
-                }
-
-                println("Done! Took $taken")
-
-                testingResults.getValue(randomKey.first).compute(randomTest.first) { _, takenSoFar -> takenSoFar?.plus(taken) ?: taken }
-
-                delay(random.nextLong(100, 400))
-            }
-        }
-
-        println("==Results==")
-        testingResults.entries.forEachIndexed { index, (name, results) ->
-            println("\t${index + 1}) $name")
-            results.entries.forEachIndexed { index, (testName, duration) -> println("\t\t${index + 1}) $testName: $duration") }
-        }
-
-        exitProcess(1)
     }
 }

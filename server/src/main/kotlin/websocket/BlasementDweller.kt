@@ -50,7 +50,7 @@ class BlasementDweller(val blasement: TheBlasement, val format: SerialFormat, va
         println("Received $event from $websocket")
 
         when (event) {
-            is ClientEvent.SubscribeToGame -> blasement.liveData.getLocalGame(event.season, event.day, event.game)
+            is ClientEvent.SubscribeToGame -> blasement.liveData.getLocalGame(event.game)
                 ?.updateLog
                 ?.onEach { schedule -> sendEvent(ServerEvent.GameUpdate(schedule)) }
                 ?.launchIn(websocket)

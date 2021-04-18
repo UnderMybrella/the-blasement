@@ -15,6 +15,7 @@ import io.ktor.client.features.json.serializer.*
 import io.ktor.client.features.websocket.*
 import io.ktor.http.*
 import io.ktor.http.cio.websocket.*
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.receiveAsFlow
@@ -26,7 +27,16 @@ import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToByteArray
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
+import java.io.File
+import java.security.MessageDigest
+import java.util.*
 import kotlin.system.measureTimeMillis
+import kotlin.time.ExperimentalTime
+import kotlin.time.measureTime
+import kotlin.time.measureTimedValue
+import kotlin.time.seconds
 
 suspend fun WebSocketSession.sendEvent(format: SerialFormat, event: ClientEvent) {
     when (format) {
@@ -36,6 +46,7 @@ suspend fun WebSocketSession.sendEvent(format: SerialFormat, event: ClientEvent)
     }
 }
 
+@OptIn(ExperimentalTime::class)
 suspend fun main() {
     val json = Json { }
 
@@ -66,36 +77,36 @@ suspend fun main() {
     val blaseballApi = BlaseballApi(client)
     val chroniclerApi = ChroniclerApi(client)
 
-    client.webSocket("ws://localhost:9897/connect") {
-        val format = json
-
-        val receivingJob = incoming.receiveAsFlow().onEach { frame ->
-            val event: ServerEvent = when (format) {
-                is StringFormat -> {
-                    when (frame.frameType) {
-                        FrameType.TEXT -> format.decodeFromString(frame.readBytes().decodeToString().also { str -> println("Received [$str]") })
-                        FrameType.BINARY -> {
-                            println("WARN: Received binary in $frame; could be compressed text?")
-                            format.decodeFromString(frame.readBytes().decodeToString())
-                        }
-                        else -> throw IllegalStateException("Cannot parse text from frame type ${frame.frameType} for $frame")
-                    }
-                }
-
-                is BinaryFormat ->
-                    if (frame.frameType == FrameType.BINARY) format.decodeFromByteArray(frame.readBytes())
-                    else throw IllegalStateException("Cannot parse binary data from frame type ${frame.frameType} for $frame")
-
-                else -> throw IllegalArgumentException("Unknown format type ${format::class} (${format::class.java.interfaces.joinToString()}")
-            }
-
-            println(event)
-        }.launchIn(this)
-
-        val simData = blaseballApi.getSimulationData()
-        val latestGames = blaseballApi.getGamesByDate(simData.season, simData.day)
-        sendEvent(json, ClientEvent.SubscribeToGlobalFeedEvents(BlaseballFeedEventType.HIT))
-
-        receivingJob.join()
-    }
+//    client.webSocket("ws://localhost:9897/connect") {
+//        val format = json
+//
+//        val receivingJob = incoming.receiveAsFlow().onEach { frame ->
+//            val event: ServerEvent = when (format) {
+//                is StringFormat -> {
+//                    when (frame.frameType) {
+//                        FrameType.TEXT -> format.decodeFromString(frame.readBytes().decodeToString().also { str -> println("Received [$str]") })
+//                        FrameType.BINARY -> {
+//                            println("WARN: Received binary in $frame; could be compressed text?")
+//                            format.decodeFromString(frame.readBytes().decodeToString())
+//                        }
+//                        else -> throw IllegalStateException("Cannot parse text from frame type ${frame.frameType} for $frame")
+//                    }
+//                }
+//
+//                is BinaryFormat ->
+//                    if (frame.frameType == FrameType.BINARY) format.decodeFromByteArray(frame.readBytes())
+//                    else throw IllegalStateException("Cannot parse binary data from frame type ${frame.frameType} for $frame")
+//
+//                else -> throw IllegalArgumentException("Unknown format type ${format::class} (${format::class.java.interfaces.joinToString()}")
+//            }
+//
+//            println(event)
+//        }.launchIn(this)
+//
+//        val simData = blaseballApi.getSimulationData()
+//        val latestGames = blaseballApi.getGamesByDate(simData.season, simData.day)
+//        sendEvent(json, ClientEvent.SubscribeToGlobalFeedEvents(BlaseballFeedEventType.HIT))
+//
+//        receivingJob.join()
+//    }
 }

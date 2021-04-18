@@ -7,13 +7,14 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.Json
 import kotlin.coroutines.CoroutineContext
 
-class TheBlasement(val httpClient: HttpClient, val blaseballApi: BlaseballApi, val chroniclerApi: ChroniclerApi) : CoroutineScope {
+class TheBlasement(val json: Json, val httpClient: HttpClient, val blaseballApi: BlaseballApi, val chroniclerApi: ChroniclerApi) : CoroutineScope {
     override val coroutineContext: CoroutineContext = Dispatchers.Default
 
     val liveData = LiveData(blaseballApi, chroniclerApi, this)
-    val globalFeed = BlaseballFeed.Global(blaseballApi, chroniclerApi, this)
+    val globalFeed = BlaseballFeed.Global(this)
 
     /** Sub Event Feeds */
 

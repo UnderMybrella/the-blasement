@@ -18,7 +18,7 @@ import kotlin.coroutines.CoroutineContext
 
 class LiveData(val blaseballApi: BlaseballApi, val chroniclerApi: ChroniclerApi, val scope: CoroutineScope, val context: CoroutineContext = scope.coroutineContext) {
     //    val simulationData: MutableList<BlaseballStreamData> = ArrayList()
-    val games: MutableMap<Int, MutableMap<GameID, BlaseballUpdatingGame>> = HashMap()
+    val games: MutableMap<GameID, BlaseballUpdatingGame> = HashMap()
 
     val firstUpdateJob = scope.launch(context) {
         var last: BlaseballStreamData? = null
@@ -72,21 +72,19 @@ class LiveData(val blaseballApi: BlaseballApi, val chroniclerApi: ChroniclerApi,
 
             val date = BlaseballDate(gamesData.sim.season, gamesData.sim.day)
             this@LiveData.date = date
-            val gamesForToday = games.computeIfAbsent(date.data) { HashMap() }
 
             gamesData.schedule.forEach { game ->
-                val thisGame = gamesForToday.computeIfAbsent(GameID(game.id.id)) { BlaseballUpdatingGame() }
+                val thisGame = games.computeIfAbsent(GameID(game.id.id)) { BlaseballUpdatingGame() }
                 thisGame.issueUpdate(game)
             }
         }
     }
 
-    suspend fun getLocalGame(season: Int, day: Int, game: GameID): BlaseballUpdatingGame? =
-        games[(season shl 8) or (day)]?.get(game)
+    suspend fun getLocalGame(game: GameID): BlaseballUpdatingGame? =
+        games[game]
 
-    suspend fun getGame(season: Int, day: Int, game: GameID): Map<Int, BlaseballDatabaseGame>? {
-        val dayKey = (season shl 8) or (day)
-        val thisGame = games[dayKey]?.get(game)
+    suspend fun getGame(game: GameID): Map<Int, BlaseballDatabaseGame>? {
+        val thisGame = games[game]
 
         if (thisGame != null) {
             return thisGame.getUpdates().withIndex().mapNotNull { if (it.value == null) null else it as IndexedValue<BlaseballStreamDataSchedule> }.associate { (i, v) ->

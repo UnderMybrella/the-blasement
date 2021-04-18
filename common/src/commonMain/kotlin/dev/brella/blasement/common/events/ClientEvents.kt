@@ -23,7 +23,7 @@ import kotlin.reflect.KClass
 sealed class ClientEvent {
     @Serializable
     @SerialName("SUBSCRIBE_TO_GAME")
-    data class SubscribeToGame(val season: Int, val day: Int, val game: GameID) : ClientEvent() {
+    data class SubscribeToGame(val game: GameID) : ClientEvent() {
         override fun serialise(encoder: CompositeEncoder, descriptor: SerialDescriptor) {
             encoder.encodeSerializableElement(descriptor, 1, serializer(), this)
         }

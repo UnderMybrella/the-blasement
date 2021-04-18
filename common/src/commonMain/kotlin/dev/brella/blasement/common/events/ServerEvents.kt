@@ -49,7 +49,7 @@ sealed class ServerEvent {
 
     @Serializable
     @SerialName("GLOBAL_FEED_EVENT")
-    data class GlobalFeedEvent(val event: BlaseballFeedEvent): ServerEvent() {
+    data class GlobalFeedEvent(val event: BlaseballFeedEventWithContext): ServerEvent() {
         override fun serialise(encoder: CompositeEncoder, descriptor: SerialDescriptor) {
             encoder.encodeSerializableElement(descriptor, 1, serializer(), this)
         }
