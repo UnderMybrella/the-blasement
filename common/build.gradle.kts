@@ -46,9 +46,10 @@ kotlin {
     sourceSets {
         val commonMain by getting {
             dependencies {
-                implementation("dev.brella:kornea-blaseball:1.4.0-alpha")
+                implementation("dev.brella:kornea-blaseball:1.4.4-alpha")
 
                 implementation("org.jetbrains.kotlinx:kotlinx-serialization-core:1.1.0")
+                implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.4.3")
             }
         }
         val commonTest by getting {

@@ -1,7 +1,7 @@
 package dev.brella.blasement.common.events
 
+import dev.brella.kornea.blaseball.EnumBlaseballItem
 import dev.brella.kornea.blaseball.GameID
-import dev.brella.kornea.blaseball.beans.BlaseballStreamDataSchedule
 import kotlinx.serialization.InternalSerializationApi
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.SerialName
@@ -16,6 +16,7 @@ import kotlinx.serialization.encoding.Decoder
 import kotlinx.serialization.encoding.Encoder
 import kotlinx.serialization.encoding.decodeStructure
 import kotlinx.serialization.encoding.encodeStructure
+import kotlinx.serialization.serializer
 import kotlin.reflect.KClass
 
 @Serializable(ClientEventSerialiser::class)
@@ -78,7 +79,28 @@ sealed class ClientEvent {
         }
     }
 
-    abstract fun serialise(encoder: CompositeEncoder, descriptor: SerialDescriptor)
+    @Serializable
+    @SerialName("GET_BETTER")
+    object GetBetter: ClientEvent()
+
+    sealed class PerformBetterAction: ClientEvent() {
+        @Serializable
+        @SerialName("BEG")
+        object Beg: PerformBetterAction()
+
+        @Serializable
+        @SerialName("PURCHASE_MEMBERSHIP_CARD")
+        object PurchaseMembershipCard: PerformBetterAction()
+
+        @Serializable
+        @SerialName("PURCHASE_ITEM")
+        data class PurchaseItem(val item: @Serializable(ItemSerializer::class) EnumBlaseballItem, val amount: Int): PerformBetterAction()
+    }
+
+    @OptIn(InternalSerializationApi::class)
+    open fun serialise(encoder: CompositeEncoder, descriptor: SerialDescriptor) {
+        encoder.encodeSerializableElement(descriptor, 1, this::class.serializer() as KSerializer<ClientEvent>, this)
+    }
 }
 
 //TODO: Once https://github.com/Kotlin/kotlinx.serialization/pull/1408 has been merged into main, replace with sealed class serialisation via @SerialName
@@ -93,7 +115,13 @@ object ClientEventSerialiser : KSerializer<ClientEvent> {
 
         ClientEvent.GetDate::class to ClientEvent.GetDate.serializer(),
         ClientEvent.GetTodaysGames::class to ClientEvent.GetTodaysGames.serializer(),
-        ClientEvent.GetTomorrowsGames::class to ClientEvent.GetTomorrowsGames.serializer()
+        ClientEvent.GetTomorrowsGames::class to ClientEvent.GetTomorrowsGames.serializer(),
+
+        ClientEvent.GetBetter::class to ClientEvent.GetBetter.serializer(),
+
+        ClientEvent.PerformBetterAction.Beg::class to ClientEvent.PerformBetterAction.Beg.serializer(),
+        ClientEvent.PerformBetterAction.PurchaseMembershipCard::class to ClientEvent.PerformBetterAction.PurchaseMembershipCard.serializer(),
+        ClientEvent.PerformBetterAction.PurchaseItem::class to ClientEvent.PerformBetterAction.PurchaseItem.serializer()
     )
 
     inline fun Pair<KClass<out ClientEvent>, KSerializer<out ClientEvent>>.identifier(): String =

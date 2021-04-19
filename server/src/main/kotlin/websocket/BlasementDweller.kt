@@ -1,8 +1,11 @@
 package websocket
 
 import TheBlasement
+import dev.brella.blasement.common.events.BlasementBetter
 import dev.brella.blasement.common.events.ClientEvent
 import dev.brella.blasement.common.events.ServerEvent
+import dev.brella.blasement.common.events.toPayload
+import dev.brella.kornea.blaseball.beans.BlaseballTeam
 import io.ktor.http.cio.websocket.*
 import io.ktor.websocket.*
 import kotlinx.coroutines.CoroutineScope
@@ -10,6 +13,7 @@ import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.receiveAsFlow
+import kotlinx.coroutines.launch
 import kotlinx.serialization.BinaryFormat
 import kotlinx.serialization.SerialFormat
 import kotlinx.serialization.StringFormat
@@ -17,17 +21,31 @@ import kotlinx.serialization.decodeFromByteArray
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToByteArray
 import kotlinx.serialization.encodeToString
+import newBlaseballGal
 import java.util.concurrent.Executors
 import kotlin.coroutines.CoroutineContext
 
 class BlasementDweller(val blasement: TheBlasement, val format: SerialFormat, val websocket: DefaultWebSocketServerSession) {
     companion object : CoroutineScope {
         override val coroutineContext: CoroutineContext = Executors.newCachedThreadPool().asCoroutineDispatcher()
+        var teams: List<BlaseballTeam> = emptyList()
+    }
+
+    lateinit var better: BlasementBetter
+    val teamsJob = launch {
+        if (teams.isEmpty()) {
+            teams = blasement.blaseballApi.getAllTeams()
+        }
+
+        better = newBlaseballGal(name = "Zanna Testingbird", favouriteTeam = teams.random().id)
     }
 
     val receivingJob = websocket.incoming.receiveAsFlow().onEach(this::onMessage).launchIn(websocket)
 
+
     suspend fun onMessage(frame: Frame) {
+        teamsJob.join()
+
         val event: ClientEvent = when (format) {
             is StringFormat -> {
                 when (frame.frameType) {
@@ -71,6 +89,18 @@ class BlasementDweller(val blasement: TheBlasement, val format: SerialFormat, va
             is ClientEvent.GetDate -> sendEvent(blasement.today().let { (season, day) -> ServerEvent.CurrentDate(season, day) })
             is ClientEvent.GetTodaysGames -> sendEvent(blasement.today().let { (season, day) -> ServerEvent.GameList(season, day, blasement.gamesToday()) })
             is ClientEvent.GetTomorrowsGames -> sendEvent(blasement.today().let { (season, day) -> ServerEvent.GameList(season, day + 1, blasement.gamesTomorrow()) })
+
+            is ClientEvent.GetBetter -> sendEvent(ServerEvent.BetterPayload(better.toPayload()))
+
+            is ClientEvent.PerformBetterAction -> {
+                println("Performing Better Action: ${event}")
+
+                when (event) {
+                    is ClientEvent.PerformBetterAction.Beg -> sendEvent(ServerEvent.BetterActionResponse.Beg(better.beg()))
+                    is ClientEvent.PerformBetterAction.PurchaseMembershipCard -> sendEvent(ServerEvent.BetterActionResponse.PurchaseShopMembershipCard(better.purchaseShopMembershipCard()))
+                    is ClientEvent.PerformBetterAction.PurchaseItem -> sendEvent(ServerEvent.BetterActionResponse.PurchaseItem(better.purchase(event.amount, event.item)))
+                }
+            }
 
             else -> println("Unknown event $event")
         }

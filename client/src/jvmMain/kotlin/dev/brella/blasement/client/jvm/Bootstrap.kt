@@ -4,6 +4,7 @@ import dev.brella.blasement.common.events.ClientEvent
 import dev.brella.blasement.common.events.ServerEvent
 import dev.brella.kornea.blaseball.BlaseballApi
 import dev.brella.kornea.blaseball.BlaseballFeedEventType
+import dev.brella.kornea.blaseball.EnumBlaseballItem
 import dev.brella.kornea.blaseball.chronicler.ChroniclerApi
 import dev.brella.ktornea.common.installGranularHttp
 import io.ktor.client.*
@@ -77,36 +78,32 @@ suspend fun main() {
     val blaseballApi = BlaseballApi(client)
     val chroniclerApi = ChroniclerApi(client)
 
-//    client.webSocket("ws://localhost:9897/connect") {
-//        val format = json
-//
-//        val receivingJob = incoming.receiveAsFlow().onEach { frame ->
-//            val event: ServerEvent = when (format) {
-//                is StringFormat -> {
-//                    when (frame.frameType) {
-//                        FrameType.TEXT -> format.decodeFromString(frame.readBytes().decodeToString().also { str -> println("Received [$str]") })
-//                        FrameType.BINARY -> {
-//                            println("WARN: Received binary in $frame; could be compressed text?")
-//                            format.decodeFromString(frame.readBytes().decodeToString())
-//                        }
-//                        else -> throw IllegalStateException("Cannot parse text from frame type ${frame.frameType} for $frame")
-//                    }
-//                }
-//
-//                is BinaryFormat ->
-//                    if (frame.frameType == FrameType.BINARY) format.decodeFromByteArray(frame.readBytes())
-//                    else throw IllegalStateException("Cannot parse binary data from frame type ${frame.frameType} for $frame")
-//
-//                else -> throw IllegalArgumentException("Unknown format type ${format::class} (${format::class.java.interfaces.joinToString()}")
-//            }
-//
-//            println(event)
-//        }.launchIn(this)
-//
-//        val simData = blaseballApi.getSimulationData()
-//        val latestGames = blaseballApi.getGamesByDate(simData.season, simData.day)
-//        sendEvent(json, ClientEvent.SubscribeToGlobalFeedEvents(BlaseballFeedEventType.HIT))
-//
-//        receivingJob.join()
-//    }
+    client.webSocket("ws://localhost:9897/connect") {
+        try {
+            val clientelle = BlasementClientelle(json, client, blaseballApi, chroniclerApi, this)
+            val better = clientelle.better
+
+            println("Hi there! My name is ${better.name}")
+
+            println("Begging: ${better.beg()}")
+            println("Membership Card (Before: ${better.hasUnlockedShop}): ${better.purchaseShopMembershipCard()} (After: ${better.hasUnlockedShop})")
+            repeat(8) { i ->
+                println("Round ${i + 1}")
+                println("Coins: ${better.coins}")
+                println("hehe slushie time (Before: ${better.inventory[EnumBlaseballItem.SLUSHIE]}): ${better.purchase(1, EnumBlaseballItem.SLUSHIE)} (After: ${better.inventory[EnumBlaseballItem.SLUSHIE]})")
+            }
+
+            println("Coins: ${better.coins}")
+            println("hehe corn time (Before: ${better.inventory[EnumBlaseballItem.POPCORN]}): ${better.purchase(1, EnumBlaseballItem.POPCORN)} (After: ${better.inventory[EnumBlaseballItem.POPCORN]})")
+
+            println("Oh, what are these? ${better.purchase(1, EnumBlaseballItem.BREAD_CRUMBS)}")
+            println("hehe beg time (Before: ${better.coins}): ${better.beg()} (After: ${better.coins})")
+
+
+            clientelle.join()
+        } catch (th: Throwable) {
+            th.printStackTrace()
+            throw th
+        }
+    }
 }

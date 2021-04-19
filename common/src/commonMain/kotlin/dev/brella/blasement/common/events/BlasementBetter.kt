@@ -3,11 +3,17 @@ package dev.brella.blasement.common.events
 import dev.brella.kornea.blaseball.BlaseballRewardShopItem
 import dev.brella.kornea.blaseball.BlaseballRewardShopItem.Companion.SLOT_MULTIPLIERS
 import dev.brella.kornea.blaseball.BlaseballRewardShopItem.Companion.SLOT_PRICE
+import dev.brella.kornea.blaseball.BlaseballUUID
 import dev.brella.kornea.blaseball.EnumBlaseballItem
 import dev.brella.kornea.blaseball.GameID
 import dev.brella.kornea.blaseball.PlayerID
 import dev.brella.kornea.blaseball.TeamID
+import kotlinx.serialization.KSerializer
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.builtins.serializer
+import kotlinx.serialization.descriptors.SerialDescriptor
+import kotlinx.serialization.encoding.Decoder
+import kotlinx.serialization.encoding.Encoder
 import kotlin.math.roundToInt
 import kotlin.random.Random
 
@@ -65,8 +71,19 @@ enum class EnumBetFail {
     CANT_BET_ZERO
 }
 
+object ItemSerializer: KSerializer<EnumBlaseballItem> {
+    override val descriptor: SerialDescriptor = String.serializer().descriptor
+
+    override fun deserialize(decoder: Decoder): EnumBlaseballItem =
+        EnumBlaseballItem.valueOf(decoder.decodeString())
+
+    override fun serialize(encoder: Encoder, value: EnumBlaseballItem) {
+        encoder.encodeString(value.name)
+    }
+}
+
 @Serializable
-data class BlaseballInventorySlot(val item: EnumBlaseballItem, var count: Int) : MutableMap.MutableEntry<EnumBlaseballItem, Int> {
+data class BlaseballInventorySlot(val item: @Serializable(ItemSerializer::class) EnumBlaseballItem, var count: Int) : MutableMap.MutableEntry<EnumBlaseballItem, Int> {
     override val key: EnumBlaseballItem by this::item
     override val value: Int by this::count
 
@@ -198,7 +215,12 @@ class BlasementInventory(var backing: Array<BlaseballInventorySlot?>) : List<Bla
     }
 }
 
+@Serializable
+inline class BetterID(override val id: String) : BlaseballUUID
+
 interface BlasementBetter {
+    val id: BetterID
+
     val name: String
     val coins: Long
 
@@ -218,13 +240,13 @@ interface BlasementBetter {
         get() = SLOT_MULTIPLIERS[inventory.size]
 
     suspend fun beg(): Pair<Int?, EnumBegFail?>
-    suspend fun purchaseMembershipCard(): EnumUnlockFail?
+    suspend fun purchaseShopMembershipCard(): Pair<Int?, EnumUnlockFail?>
 
-    suspend fun purchase(amount: Int, item: EnumBlaseballItem): EnumPurchaseItemFail?
-    suspend fun sell(amount: Int, item: EnumBlaseballItem): EnumSellItemFail?
+    suspend fun purchase(amount: Int, item: EnumBlaseballItem): Pair<Int?, EnumPurchaseItemFail?>
+    suspend fun sell(amount: Int, item: EnumBlaseballItem): Pair<Int?, EnumSellItemFail?>
 
-    suspend fun purchaseSlot(amount: Int = 1): EnumPurchaseSlotFail?
-    suspend fun sellSlot(amount: Int = 1): EnumSellSlotFail?
+    suspend fun purchaseSlot(amount: Int = 1): Pair<Int?, EnumPurchaseSlotFail?>
+    suspend fun sellSlot(amount: Int = 1): Pair<Int?, EnumSellSlotFail?>
 
     suspend fun placeBet(onGame: GameID, onTeam: TeamID, amount: Int): EnumBetFail?
 }
@@ -239,4 +261,23 @@ inline fun EnumBlaseballItem.sellsFor(amountInInventory: Int, amountToSell: Int)
         else -> tiers?.let { it.slice((amountInInventory - amountToSell) until amountInInventory).sumBy(BlaseballRewardShopItem::price) / 4 } ?: 0
     }
 
-inline operator fun Int?.plus(other: Int?): Int? = if (this == null || other == null) null else this + other
+//inline operator fun Int?.plus(other: Int?): Int? = if (this == null || other == null) null else this + other
+
+inline fun BlasementBetter.toPayload() =
+    BlasementBetterPayload(id, name, coins, idol, favouriteTeam, hasUnlockedShop, hasUnlockedElections, inventory, currentBets)
+
+@Serializable
+data class BlasementBetterPayload(
+    val id: BetterID,
+
+    val name: String,
+    val coins: Long,
+    val idol: PlayerID? = null,
+    val favouriteTeam: TeamID,
+
+    val hasUnlockedShop: Boolean = false,
+    val hasUnlockedElections: Boolean = false,
+
+    val inventory: BlasementInventory = BlasementInventory(arrayOfNulls(8)),
+    val currentBets: Map<GameID, BlaseballBet> = HashMap()
+)

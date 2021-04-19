@@ -1,9 +1,7 @@
 package dev.brella.blasement.common.events
 
-import dev.brella.kornea.blaseball.GameID
 import dev.brella.kornea.blaseball.beans.BlaseballDatabaseGame
-import dev.brella.kornea.blaseball.beans.BlaseballFeedEvent
-import dev.brella.kornea.blaseball.beans.BlaseballStreamDataSchedule
+import dev.brella.kornea.blaseball.beans.BlaseballStreamDataGame
 import kotlinx.serialization.InternalSerializationApi
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.SerialName
@@ -18,10 +16,11 @@ import kotlinx.serialization.encoding.Decoder
 import kotlinx.serialization.encoding.Encoder
 import kotlinx.serialization.encoding.decodeStructure
 import kotlinx.serialization.encoding.encodeStructure
+import kotlinx.serialization.serializer
 import kotlin.reflect.KClass
 
 @Serializable(ServerEventSerialiser::class)
-/** This is an event sent **from** the client to the server */
+/** This is an event sent **from** the server to the client */
 sealed class ServerEvent {
     @Serializable
     @SerialName("CURRENT_DATE")
@@ -41,7 +40,7 @@ sealed class ServerEvent {
 
     @Serializable
     @SerialName("GAME_UPDATE")
-    data class GameUpdate(val schedule: BlaseballStreamDataSchedule): ServerEvent() {
+    data class GameUpdate(val schedule: BlaseballStreamDataGame): ServerEvent() {
         override fun serialise(encoder: CompositeEncoder, descriptor: SerialDescriptor) {
             encoder.encodeSerializableElement(descriptor, 1, serializer(), this)
         }
@@ -55,7 +54,36 @@ sealed class ServerEvent {
         }
     }
 
-    abstract fun serialise(encoder: CompositeEncoder, descriptor: SerialDescriptor)
+    @Serializable
+    @SerialName("BETTER_PAYLOAD")
+    data class BetterPayload(val better: BlasementBetterPayload): ServerEvent()
+
+    sealed class BetterActionResponse: ServerEvent() {
+        @Serializable
+        @SerialName("BEGGED")
+        data class Beg(val coinsFound: Int?, val error: EnumBegFail?): BetterActionResponse() {
+            constructor(pair: Pair<Int?, EnumBegFail?>): this(pair.first, pair.second)
+
+            inline fun asPair() = Pair(coinsFound, error)
+        }
+
+        @Serializable
+        @SerialName("PURCHASED_SHOP_MEMBERSHIP_CARD")
+        data class PurchaseShopMembershipCard(val cost: Int?, val error: EnumUnlockFail?): BetterActionResponse() {
+            constructor(pair: Pair<Int?, EnumUnlockFail?>): this(pair.first, pair.second)
+        }
+
+        @Serializable
+        @SerialName("PURCHASED_ITEM")
+        data class PurchaseItem(val cost: Int?, val error: EnumPurchaseItemFail?): BetterActionResponse() {
+            constructor(pair: Pair<Int?, EnumPurchaseItemFail?>): this(pair.first, pair.second)
+        }
+    }
+
+    @OptIn(InternalSerializationApi::class)
+    open fun serialise(encoder: CompositeEncoder, descriptor: SerialDescriptor) {
+        encoder.encodeSerializableElement(descriptor, 1, this::class.serializer() as KSerializer<ServerEvent>, this)
+    }
 }
 
 //TODO: Once https://github.com/Kotlin/kotlinx.serialization/pull/1408 has been merged into main, replace with sealed class serialisation via @SerialName
@@ -64,7 +92,11 @@ object ServerEventSerialiser : KSerializer<ServerEvent> {
         ServerEvent.CurrentDate::class to ServerEvent.CurrentDate.serializer(),
         ServerEvent.GameList::class to ServerEvent.GameList.serializer(),
         ServerEvent.GameUpdate::class to ServerEvent.GameUpdate.serializer(),
-        ServerEvent.GlobalFeedEvent::class to ServerEvent.GlobalFeedEvent.serializer()
+        ServerEvent.GlobalFeedEvent::class to ServerEvent.GlobalFeedEvent.serializer(),
+        ServerEvent.BetterPayload::class to ServerEvent.BetterPayload.serializer(),
+        ServerEvent.BetterActionResponse.Beg::class to ServerEvent.BetterActionResponse.Beg.serializer(),
+        ServerEvent.BetterActionResponse.PurchaseShopMembershipCard::class to ServerEvent.BetterActionResponse.PurchaseShopMembershipCard.serializer(),
+        ServerEvent.BetterActionResponse.PurchaseItem::class to ServerEvent.BetterActionResponse.PurchaseItem.serializer()
     )
 
     inline fun Pair<KClass<out ServerEvent>, KSerializer<out ServerEvent>>.identifier(): String =

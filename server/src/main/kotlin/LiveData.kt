@@ -4,7 +4,7 @@ import dev.brella.kornea.blaseball.ModificationID
 import dev.brella.kornea.blaseball.TerminologyID
 import dev.brella.kornea.blaseball.beans.BlaseballDatabaseGame
 import dev.brella.kornea.blaseball.beans.BlaseballStreamData
-import dev.brella.kornea.blaseball.beans.BlaseballStreamDataSchedule
+import dev.brella.kornea.blaseball.beans.BlaseballStreamDataGame
 import dev.brella.kornea.blaseball.chronicler.ChroniclerApi
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.channels.Channel
@@ -87,9 +87,9 @@ class LiveData(val blaseballApi: BlaseballApi, val chroniclerApi: ChroniclerApi,
         val thisGame = games[game]
 
         if (thisGame != null) {
-            return thisGame.getUpdates().withIndex().mapNotNull { if (it.value == null) null else it as IndexedValue<BlaseballStreamDataSchedule> }.associate { (i, v) ->
+            return thisGame.getUpdates().withIndex().mapNotNull { if (it.value == null) null else it as IndexedValue<BlaseballStreamDataGame> }.associate { (i, v) ->
                 i to BlaseballDatabaseGame(
-                    GameID(v.id.id),
+                    v.id,
                     v.basesOccupied,
                     v.baseRunners,
                     v.baseRunnerNames,
