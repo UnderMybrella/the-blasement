@@ -1,18 +1,19 @@
 package dev.brella.blasement.common.events
 
-import dev.brella.kornea.blaseball.BlaseballFeedEventType
-import dev.brella.kornea.blaseball.PlayerID
-import dev.brella.kornea.blaseball.TeamID
-import dev.brella.kornea.blaseball.beans.BlaseballDatabaseGame
-import dev.brella.kornea.blaseball.beans.BlaseballFeedEvent
+import dev.brella.kornea.blaseball.base.common.PlayerID
+import dev.brella.kornea.blaseball.base.common.TeamID
+import dev.brella.kornea.blaseball.base.common.beans.BlaseballDatabaseGame
+import dev.brella.kornea.blaseball.base.common.beans.BlaseballFeedEvent
 import kotlinx.serialization.Serializable
 
 @Serializable
 data class BlaseballFeedEventWithContext(val event: BlaseballFeedEvent, val gameStep: BlaseballDatabaseGame?)
 
 data class BlaseballFloodingEvent(val event: BlaseballFeedEvent.Flooding, val gameStep: BlaseballDatabaseGame, val playersFlooded: List<PlayerID>)
+
 data class BlaseballGameEndEvent(val event: BlaseballFeedEvent.GameEndLog, val gameStep: BlaseballDatabaseGame, val winner: TeamID)
 data class BlaseballShutoutEvent(val event: BlaseballFeedEvent.GameEndLog, val gameStep: BlaseballDatabaseGame, val pitcher: PlayerID, val pitcherName: String)
+
 data class BlaseballBlackHoleEvent(val event: BlaseballFeedEvent.BlackHoleInGame, val gameStep: BlaseballDatabaseGame)
 data class BlaseballIncinerationEvent(val event: BlaseballFeedEvent.Incineration, val gameStep: BlaseballDatabaseGame)
 data class BlaseballStrikeoutEvent(val event: BlaseballFeedEvent.Strikeout, val gameStep: BlaseballDatabaseGame)

@@ -1,7 +1,8 @@
 package dev.brella.blasement.common.events
 
-import dev.brella.kornea.blaseball.EnumBlaseballItem
-import dev.brella.kornea.blaseball.GameID
+import dev.brella.kornea.blaseball.base.common.EnumBlaseballItem
+import dev.brella.kornea.blaseball.base.common.GameID
+import dev.brella.kornea.blaseball.base.common.TeamID
 import kotlinx.serialization.InternalSerializationApi
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.SerialName
@@ -80,21 +81,49 @@ sealed class ClientEvent {
     }
 
     @Serializable
-    @SerialName("GET_BETTER")
-    object GetBetter: ClientEvent()
+    @SerialName("AUTHENTICATE_FAN")
+    data class AuthenticateFan(val authToken: String): ClientEvent()
 
-    sealed class PerformBetterAction: ClientEvent() {
+    @Serializable
+    @SerialName("CREATE_NEW_FAN")
+    data class CreateNewFan(val hashcashToken: String, val name: String, val favouriteTeam: TeamID): ClientEvent()
+
+    @Serializable
+    @SerialName("GET_SELF")
+    object GetSelf: ClientEvent()
+
+    @Serializable
+    @SerialName("BETTING_RETURNS")
+    data class BettingReturns(val onGame: GameID, val onTeam: TeamID, val amount: Int): ClientEvent()
+
+    sealed class PerformFanAction: ClientEvent() {
         @Serializable
         @SerialName("BEG")
-        object Beg: PerformBetterAction()
+        object Beg: PerformFanAction()
 
         @Serializable
         @SerialName("PURCHASE_MEMBERSHIP_CARD")
-        object PurchaseMembershipCard: PerformBetterAction()
+        object PurchaseMembershipCard: PerformFanAction()
 
         @Serializable
         @SerialName("PURCHASE_ITEM")
-        data class PurchaseItem(val item: @Serializable(ItemSerializer::class) EnumBlaseballItem, val amount: Int): PerformBetterAction()
+        data class PurchaseItem(val item: @Serializable(ItemSerializer::class) EnumBlaseballItem, val amount: Int): PerformFanAction()
+
+        @Serializable
+        @SerialName("SELL_ITEM")
+        data class SellItem(val item: @Serializable(ItemSerializer::class) EnumBlaseballItem, val amount: Int): PerformFanAction()
+
+        @Serializable
+        @SerialName("PURCHASE_SLOT")
+        data class PurchaseSlot(val amount: Int): PerformFanAction()
+
+        @Serializable
+        @SerialName("SELL_SLOT")
+        data class SellSlot(val amount: Int): PerformFanAction()
+
+        @Serializable
+        @SerialName("PlACE_BET")
+        data class PlaceBet(val onGame: GameID, val onTeam: TeamID, val amount: Int): PerformFanAction()
     }
 
     @OptIn(InternalSerializationApi::class)
@@ -117,11 +146,17 @@ object ClientEventSerialiser : KSerializer<ClientEvent> {
         ClientEvent.GetTodaysGames::class to ClientEvent.GetTodaysGames.serializer(),
         ClientEvent.GetTomorrowsGames::class to ClientEvent.GetTomorrowsGames.serializer(),
 
-        ClientEvent.GetBetter::class to ClientEvent.GetBetter.serializer(),
+        ClientEvent.AuthenticateFan::class to ClientEvent.AuthenticateFan.serializer(),
+        ClientEvent.GetSelf::class to ClientEvent.GetSelf.serializer(),
+        ClientEvent.CreateNewFan::class to ClientEvent.CreateNewFan.serializer(),
 
-        ClientEvent.PerformBetterAction.Beg::class to ClientEvent.PerformBetterAction.Beg.serializer(),
-        ClientEvent.PerformBetterAction.PurchaseMembershipCard::class to ClientEvent.PerformBetterAction.PurchaseMembershipCard.serializer(),
-        ClientEvent.PerformBetterAction.PurchaseItem::class to ClientEvent.PerformBetterAction.PurchaseItem.serializer()
+        ClientEvent.PerformFanAction.Beg::class to ClientEvent.PerformFanAction.Beg.serializer(),
+        ClientEvent.PerformFanAction.PurchaseMembershipCard::class to ClientEvent.PerformFanAction.PurchaseMembershipCard.serializer(),
+        ClientEvent.PerformFanAction.PurchaseItem::class to ClientEvent.PerformFanAction.PurchaseItem.serializer(),
+        ClientEvent.PerformFanAction.SellItem::class to ClientEvent.PerformFanAction.SellItem.serializer(),
+        ClientEvent.PerformFanAction.PurchaseSlot::class to ClientEvent.PerformFanAction.PurchaseSlot.serializer(),
+        ClientEvent.PerformFanAction.SellSlot::class to ClientEvent.PerformFanAction.SellSlot.serializer(),
+        ClientEvent.PerformFanAction.PlaceBet::class to ClientEvent.PerformFanAction.PlaceBet.serializer()
     )
 
     inline fun Pair<KClass<out ClientEvent>, KSerializer<out ClientEvent>>.identifier(): String =

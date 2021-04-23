@@ -1,21 +1,13 @@
 import dev.brella.blasement.common.events.*
-import dev.brella.kornea.blaseball.BlaseballFeedEventType
-import dev.brella.kornea.blaseball.beans.BlaseballFeedEvent
+import dev.brella.kornea.blaseball.base.common.beans.BlaseballFeedEvent
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
-import kotlinx.coroutines.flow.launchIn
-import kotlinx.coroutines.flow.onEach
-import kotlinx.coroutines.joinAll
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.supervisorScope
-import kotlinx.serialization.json.int
-import kotlinx.serialization.json.intOrNull
-import kotlinx.serialization.json.jsonPrimitive
 import kotlin.coroutines.CoroutineContext
 
-class BlasementEventFeed(val feed: BlaseballFeed, val liveData: LiveData, scope: CoroutineScope, context: CoroutineContext) {
+class BlasementEventFeed(val feed: BlaseballFeed, val liveData: LiveData, scope: CoroutineScope, context: CoroutineContext = scope.coroutineContext) {
     private val _onGameEnd: MutableSharedFlow<BlaseballGameEndEvent> = MutableSharedFlow()
     private val _onShutout: MutableSharedFlow<BlaseballShutoutEvent> = MutableSharedFlow()
     private val _onBlackHole: MutableSharedFlow<BlaseballBlackHoleEvent> = MutableSharedFlow()
@@ -30,7 +22,7 @@ class BlasementEventFeed(val feed: BlaseballFeed, val liveData: LiveData, scope:
     private val _onFlood: MutableSharedFlow<BlaseballFloodingEvent> = MutableSharedFlow()
 
     private val collector = scope.launch(context) {
-        feed.flow.onEach { event ->
+        feed.flow.collect { event ->
             val (event, gameStep) = event
             when (event) {
                 is BlaseballFeedEvent.GameEndLog -> if (gameStep != null) {
@@ -52,8 +44,8 @@ class BlasementEventFeed(val feed: BlaseballFeed, val liveData: LiveData, scope:
                 is BlaseballFeedEvent.HomeRun -> if (gameStep != null) _onHomeRun.emit(BlaseballHomeRunEvent(event, gameStep))
                 is BlaseballFeedEvent.Hit -> {
                     if (gameStep != null) {
-                        if (gameStep.homePitcher != null) _onHit.emit(BlaseballHitEvent(event, gameStep, gameStep.homePitcher!!, gameStep.homePitcherName, gameStep.awayBatter!!, gameStep.awayBatterName!!))
-                        else if (gameStep.awayPitcher != null) _onHit.emit(BlaseballHitEvent(event, gameStep, gameStep.awayPitcher!!, gameStep.awayPitcherName!!, gameStep.homeBatter!!, gameStep.homeBatterName!!))
+                        if (gameStep.homePitcher != null && gameStep.awayBatter != null) _onHit.emit(BlaseballHitEvent(event, gameStep, gameStep.homePitcher!!, gameStep.homePitcherName, gameStep.awayBatter!!, gameStep.awayBatterName!!))
+                        else if (gameStep.awayPitcher != null && gameStep.homeBatter != null) _onHit.emit(BlaseballHitEvent(event, gameStep, gameStep.awayPitcher!!, gameStep.awayPitcherName!!, gameStep.homeBatter!!, gameStep.homeBatterName!!))
                     }
                 }
                 is BlaseballFeedEvent.StolenBase -> if (gameStep != null) _onStolenBase.emit(BlaseballStolenBaseEvent(event, gameStep))

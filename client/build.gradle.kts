@@ -1,5 +1,3 @@
-import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
-
 plugins {
     kotlin("multiplatform")
 }
@@ -54,7 +52,7 @@ kotlin {
                 implementation("dev.brella:kornea-toolkit:3.3.1-alpha")
                 implementation("dev.brella:ktornea-utils:1.1.0-alpha")
 
-                implementation("dev.brella:kornea-blaseball:1.4.4-alpha")
+                implementation("dev.brella:kornea-blaseball-api:2.1.3-alpha")
 
                 implementation("org.jetbrains.kotlinx:atomicfu:0.15.1")
 
@@ -78,19 +76,7 @@ kotlin {
                 implementation("dev.brella:ktornea-apache:1.0.0-alpha")
             }
         }
-        val jvmTest by getting {
-            dependencies {
-                implementation("org.junit.jupiter:junit-jupiter-api:5.7.1")
-                implementation("org.junit.jupiter:junit-jupiter-params:5.7.1")
-                runtimeOnly("org.junit.jupiter:junit-jupiter-engine")
-
-                implementation("io.ktor:ktor-client-apache:1.5.0")
-                implementation("io.ktor:ktor-client-encoding:1.5.0")
-                implementation("io.ktor:ktor-client-core-jvm:1.5.0")
-                implementation("dev.brella:ktornea-apache:1.0.0-alpha")
-                implementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.4.3")
-            }
-        }
+        val jvmTest by getting
 //        val jsMain by getting
 //        val jsTest by getting {
 //            dependencies {

@@ -1,4 +1,5 @@
-import dev.brella.kornea.blaseball.beans.BlaseballStreamDataGame
+
+import dev.brella.kornea.blaseball.base.common.beans.BlaseballStreamDataGame
 import dev.brella.kornea.toolkit.coroutines.ReadWriteSemaphore
 import dev.brella.kornea.toolkit.coroutines.withReadPermit
 import dev.brella.kornea.toolkit.coroutines.withWritePermit

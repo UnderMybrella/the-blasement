@@ -1,4 +1,6 @@
-import dev.brella.kornea.blaseball.BlaseballFeedEventType
+package dev.brella.blasement.common.events
+
+import dev.brella.kornea.blaseball.base.common.BlaseballFeedEventType
 
 fun BlaseballFeedEventType.selectEventList(selector: BlaseballFeedEventType.() -> IntArray): IntArray =
     BlaseballFeedEventType.selector()

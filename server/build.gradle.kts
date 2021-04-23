@@ -36,15 +36,30 @@ dependencies {
     implementation("io.ktor:ktor-client-encoding:1.5.0")
     implementation("io.ktor:ktor-client-core-jvm:1.5.0")
     implementation("dev.brella:ktornea-apache:1.0.0-alpha")
-    implementation("dev.brella:ktornea-utils:1.1.0-alpha")
+    implementation("dev.brella:ktornea-utils:1.2.2-alpha")
 
-    implementation("dev.brella:kornea-blaseball:1.4.4-alpha")
+    implementation("dev.brella:kornea-blaseball-base:2.1.2-alpha")
+    implementation("dev.brella:kornea-blaseball-api:2.1.3-alpha")
 
     implementation("org.jetbrains.kotlinx:atomicfu:0.15.1")
 
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.1.0")
 
     implementation("org.jetbrains.kotlinx:kotlinx-html-jvm:0.7.2")
+
+    implementation("io.jsonwebtoken:jjwt-api:0.11.2")
+    implementation("io.jsonwebtoken:jjwt-impl:0.11.2")
+    // Uncomment the next line if you want to use RSASSA-PSS (PS256, PS384, PS512) algorithms:
+    implementation("org.bouncycastle:bcprov-jdk15on:1.60")
+    implementation("io.jsonwebtoken:jjwt-jackson:0.11.2") // or "io.jsonwebtoken:jjwt-gson:0.11.2' for gson
+
+//    implementation("org.ufoss.kotysa:kotysa-spring-r2dbc:0.2.3")
+//    implementation("org.springframework:spring-r2dbc:1.0.0.RELEASE")
+    implementation("io.r2dbc:r2dbc-h2:0.8.4.RELEASE")
+
+
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.4.3")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-reactor:1.4.3")
 
     implementation(project(":blasement-common"))
 }

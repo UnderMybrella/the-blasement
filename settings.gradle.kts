@@ -1,4 +1,3 @@
-
 rootProject.name = "blasement-bets"
 
 include(":common", ":client", ":server")
