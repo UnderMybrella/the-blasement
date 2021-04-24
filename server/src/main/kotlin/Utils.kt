@@ -18,6 +18,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.long
 import kotlinx.serialization.json.put
 import org.reactivestreams.Publisher
 import reactor.core.publisher.Mono
@@ -62,6 +63,12 @@ public inline fun JsonObject.getJsonArray(key: String) =
 public inline fun JsonObject.getJsonPrimitive(key: String) =
     getValue(key).jsonPrimitive
 
+public inline fun JsonObject.getString(key: String) =
+    getValue(key).jsonPrimitive.content
+
+public inline fun JsonObject.getLong(key: String) =
+    getValue(key).jsonPrimitive.long
+
 
 @ContextDsl
 public fun Route.redirectInternally(from: String, to: String, pathSelector: String = "$from{...}"): Route {
@@ -96,38 +103,27 @@ suspend fun ApplicationCall.redirectInternally(path: String) {
     this.application.execute(call, Unit)
 }
 
-suspend inline fun <reified T: Any> KorneaResult<T>.respond(call: ApplicationCall) =
-    this.doOnSuccess { call.respond(it) }
-        .doOnFailure { failure ->
-            when (failure) {
-                is KorneaHttpResult<*> -> {
-                    call.respondBytesWriter(failure.response.contentType(), failure.response.status) {
-                        failure.response.content.copyTo(this)
-                    }
-                }
-                else -> {
-                    call.respond(HttpStatusCode.InternalServerError, buildJsonObject {
-                        put("error_type", failure::class.jvmName)
-                        put("error", failure.toString())
-                    })
+suspend inline fun KorneaResult<*>.respondOnFailure(call: ApplicationCall) =
+    this.doOnFailure { failure ->
+        when (failure) {
+            is KorneaHttpResult<*> -> {
+                call.respondBytesWriter(failure.response.contentType(), failure.response.status) {
+                    failure.response.content.copyTo(this)
                 }
             }
+            else -> {
+                call.respond(HttpStatusCode.InternalServerError, buildJsonObject {
+                    put("error_type", failure::class.jvmName)
+                    put("error", failure.toString())
+                })
+            }
         }
+    }
+
+suspend inline fun <reified T: Any> KorneaResult<T>.respond(call: ApplicationCall) =
+    this.doOnSuccess { call.respond(it) }
+        .respondOnFailure(call)
 
 suspend inline fun <T, reified R: Any> KorneaResult<T>.respond(call: ApplicationCall, transform: (T) -> R) =
     this.doOnSuccess { call.respond(transform(it)) }
-        .doOnFailure { failure ->
-            when (failure) {
-                is KorneaHttpResult<*> -> {
-                    call.respondBytesWriter(failure.response.contentType(), failure.response.status) {
-                        failure.response.content.copyTo(this)
-                    }
-                }
-                else -> {
-                    call.respond(HttpStatusCode.InternalServerError, buildJsonObject {
-                        put("error_type", failure::class.jvmName)
-                        put("error", failure.toString())
-                    })
-                }
-            }
-        }
+        .respondOnFailure(call)

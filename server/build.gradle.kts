@@ -31,15 +31,14 @@ dependencies {
     implementation("dev.brella:kornea-io:5.2.0-alpha")
     implementation("dev.brella:kornea-toolkit:3.3.1-alpha")
 
-    implementation("io.ktor:ktor-client-apache:1.5.0")
     implementation("io.ktor:ktor-client-okhttp:1.5.0")
     implementation("io.ktor:ktor-client-encoding:1.5.0")
     implementation("io.ktor:ktor-client-core-jvm:1.5.0")
-    implementation("dev.brella:ktornea-apache:1.0.0-alpha")
-    implementation("dev.brella:ktornea-utils:1.2.2-alpha")
 
-    implementation("dev.brella:kornea-blaseball-base:2.1.2-alpha")
-    implementation("dev.brella:kornea-blaseball-api:2.1.3-alpha")
+    implementation("dev.brella:ktornea-utils:1.2.3-alpha")
+
+    implementation("dev.brella:kornea-blaseball-base:2.1.5-alpha")
+    implementation("dev.brella:kornea-blaseball-api:2.1.4-alpha")
 
     implementation("org.jetbrains.kotlinx:atomicfu:0.15.1")
 

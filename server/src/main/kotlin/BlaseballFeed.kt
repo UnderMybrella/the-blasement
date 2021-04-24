@@ -2,6 +2,7 @@ import com.soywiz.klock.DateTimeTz
 import com.soywiz.klock.parse
 import dev.brella.blasement.common.events.BlaseballFeedEventWithContext
 import dev.brella.blasement.common.events.TimeRange
+import dev.brella.kornea.blaseball.base.common.BLASEBALL_TIME_PATTERN
 import dev.brella.kornea.blaseball.base.common.BlaseballFeedEventType
 import dev.brella.kornea.blaseball.base.common.beans.BlaseballDatabaseGame
 import dev.brella.kornea.blaseball.base.common.beans.BlaseballFeedEvent
@@ -26,10 +27,6 @@ import kotlin.time.ExperimentalTime
 import kotlin.time.seconds
 
 sealed class BlaseballFeed(val type: String, val blasement: TheBlasement, val timeRange: TimeRange, val scope: CoroutineScope, val context: CoroutineContext = scope.coroutineContext) {
-    companion object {
-        val FORMAT = BlaseballDateTimeSerialiser.format
-    }
-
     class Global(blasement: TheBlasement, range: TimeRange, scope: CoroutineScope = blasement, context: CoroutineContext = scope.coroutineContext) : BlaseballFeed("GLOBAL", blasement, range, scope, context) {
         override suspend fun getFeed(limit: Int, start: String?): KorneaResult<List<BlaseballFeedEvent>> =
             blasement.blaseballApi.getGlobalFeed(limit = limit, sort = 1, start = start)
@@ -50,7 +47,7 @@ sealed class BlaseballFeed(val type: String, val blasement: TheBlasement, val ti
             if (lastFile.exists())
                 lastFile.readText()
                     .takeIf(String::isNotBlank)
-                    ?.let(FORMAT::parse)
+                    ?.let(BLASEBALL_TIME_PATTERN::parse)
                     ?.takeIf { it in timeRange }
                 ?: timeRange.start
             else
@@ -62,7 +59,7 @@ sealed class BlaseballFeed(val type: String, val blasement: TheBlasement, val ti
         var limit = 100
 
         loopEvery(4.seconds, `while` = { isActive }) {
-            getFeed(limit = limit, start = lastID?.let(FORMAT::format))
+            getFeed(limit = limit, start = lastID?.let(BLASEBALL_TIME_PATTERN::format))
                 .map { list -> list.filter { it.created in timeRange } }
                 .filter { it.isNotEmpty() }
                 .doOnSuccess { feed ->
@@ -75,7 +72,7 @@ sealed class BlaseballFeed(val type: String, val blasement: TheBlasement, val ti
                         limit = limit shr 1
                     }
 
-                    lastFile.writeText(lastID?.let(FORMAT::format) ?: "")
+                    lastFile.writeText(lastID?.let(BLASEBALL_TIME_PATTERN::format) ?: "")
                 }.doOnThrown { error -> error.exception.printStackTrace() }
                 .doOnFailure { delay(500L) }
         }

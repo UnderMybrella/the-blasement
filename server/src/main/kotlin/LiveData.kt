@@ -4,9 +4,7 @@ import dev.brella.kornea.blaseball.base.common.ModificationID
 import dev.brella.kornea.blaseball.base.common.TerminologyID
 import dev.brella.kornea.blaseball.base.common.beans.BlaseballDatabaseGame
 import dev.brella.kornea.blaseball.base.common.beans.BlaseballStreamData
-import dev.brella.kornea.blaseball.base.common.beans.BlaseballStreamDataGame
 import dev.brella.kornea.blaseball.chronicler.ChroniclerApi
-import dev.brella.kornea.blaseball.chronicler.ChroniclerUpdateResponse
 import dev.brella.kornea.errors.common.doOnFailure
 import dev.brella.kornea.errors.common.doOnSuccess
 import dev.brella.kornea.errors.common.doOnThrown
@@ -98,88 +96,10 @@ class LiveData(val blaseballApi: BlaseballApi, val chroniclerApi: ChroniclerApi,
         val thisGame = games[game]
 
         if (thisGame != null) {
-            return thisGame.getUpdates().withIndex().mapNotNull { if (it.value == null) null else it as IndexedValue<BlaseballStreamDataGame> }.associate { (i, v) ->
-                i to BlaseballDatabaseGame(
-                    v.id,
-                    v.basesOccupied,
-                    v.baseRunners,
-                    v.baseRunnerNames,
-                    v.outcomes,
-                    TerminologyID(v.terminology),
-                    v.lastUpdate,
-                    v.rules,
-                    v.statsheet,
-                    v.awayPitcher,
-                    v.awayPitcherName,
-                    v.awayBatter,
-                    v.awayBatterName,
-                    v.awayTeam,
-                    v.awayTeamName,
-                    v.awayTeamNickname,
-                    v.awayTeamColor,
-                    v.awayTeamEmoji,
-                    v.awayOdds,
-                    v.awayStrikes,
-                    v.awayScore,
-                    v.awayTeamBatterCount,
-                    v.homePitcher,
-                    v.homePitcherName,
-                    v.homeBatter,
-                    v.homeBatterName,
-                    v.homeTeam,
-                    v.homeTeamName,
-                    v.homeTeamNickname,
-                    v.homeTeamColor,
-                    v.homeTeamEmoji,
-                    v.homeOdds,
-                    v.homeStrikes,
-                    v.homeScore,
-                    v.homeTeamBatterCount,
-                    v.season,
-                    v.isPostseason,
-                    v.day,
-                    v.phase,
-                    v.gameComplete,
-                    v.finalized,
-                    v.gameStart,
-                    v.halfInningOuts,
-                    v.halfInningScore,
-                    v.inning,
-                    v.topOfInning,
-                    v.atBatBalls,
-                    v.atBatStrikes,
-                    v.seriesIndex,
-                    v.seriesLength,
-                    v.shame,
-                    v.weather,
-                    v.baserunnerCount,
-                    v.homeBases,
-                    v.awayBases,
-                    v.repeatCount,
-                    v.awayTeamSecondaryColor,
-                    v.homeTeamSecondaryColor,
-                    v.homeBalls,
-                    v.awayBalls,
-                    v.homeOuts,
-                    v.awayOuts,
-                    v.playCount,
-                    v.tournament,
-                    v.baseRunnerMods,
-                    v.homePitcherMod,
-                    v.homeBatterMod,
-                    v.awayPitcherMod,
-                    v.awayBatterMod,
-                    v.scoreUpdate,
-                    v.scoreLedger,
-                    v.stadiumId,
-                    v.secretBaserunner,
-                    v.topInningScore,
-                    v.bottomInningScore,
-                    v.newInningPhase,
-                    v.gameStartPhase,
-                    v.isTitleMatch
-                )
-            }
+            return thisGame.getUpdates()
+                .withIndex()
+                .mapNotNull { if (it.value == null) null else it as IndexedValue<BlaseballDatabaseGame> }
+                .associate { (k, v) -> Pair(k, v) }
         }
 
         return if (game in chroniclerGames) chroniclerGames.getValue(game)
@@ -285,89 +205,8 @@ class LiveData(val blaseballApi: BlaseballApi, val chroniclerApi: ChroniclerApi,
             map[gameID] = games.getValue(gameID)
                 .getUpdates()
                 .withIndex()
-                .mapNotNull { if (it.value == null) null else it as IndexedValue<BlaseballStreamDataGame> }
-                .associate { (i, v) ->
-                    i to BlaseballDatabaseGame(
-                        v.id,
-                        v.basesOccupied,
-                        v.baseRunners,
-                        v.baseRunnerNames,
-                        v.outcomes,
-                        TerminologyID(v.terminology),
-                        v.lastUpdate,
-                        v.rules,
-                        v.statsheet,
-                        v.awayPitcher,
-                        v.awayPitcherName,
-                        v.awayBatter,
-                        v.awayBatterName,
-                        v.awayTeam,
-                        v.awayTeamName,
-                        v.awayTeamNickname,
-                        v.awayTeamColor,
-                        v.awayTeamEmoji,
-                        v.awayOdds,
-                        v.awayStrikes,
-                        v.awayScore,
-                        v.awayTeamBatterCount,
-                        v.homePitcher,
-                        v.homePitcherName,
-                        v.homeBatter,
-                        v.homeBatterName,
-                        v.homeTeam,
-                        v.homeTeamName,
-                        v.homeTeamNickname,
-                        v.homeTeamColor,
-                        v.homeTeamEmoji,
-                        v.homeOdds,
-                        v.homeStrikes,
-                        v.homeScore,
-                        v.homeTeamBatterCount,
-                        v.season,
-                        v.isPostseason,
-                        v.day,
-                        v.phase,
-                        v.gameComplete,
-                        v.finalized,
-                        v.gameStart,
-                        v.halfInningOuts,
-                        v.halfInningScore,
-                        v.inning,
-                        v.topOfInning,
-                        v.atBatBalls,
-                        v.atBatStrikes,
-                        v.seriesIndex,
-                        v.seriesLength,
-                        v.shame,
-                        v.weather,
-                        v.baserunnerCount,
-                        v.homeBases,
-                        v.awayBases,
-                        v.repeatCount,
-                        v.awayTeamSecondaryColor,
-                        v.homeTeamSecondaryColor,
-                        v.homeBalls,
-                        v.awayBalls,
-                        v.homeOuts,
-                        v.awayOuts,
-                        v.playCount,
-                        v.tournament,
-                        v.baseRunnerMods,
-                        v.homePitcherMod,
-                        v.homeBatterMod,
-                        v.awayPitcherMod,
-                        v.awayBatterMod,
-                        v.scoreUpdate,
-                        v.scoreLedger,
-                        v.stadiumId,
-                        v.secretBaserunner,
-                        v.topInningScore,
-                        v.bottomInningScore,
-                        v.newInningPhase,
-                        v.gameStartPhase,
-                        v.isTitleMatch
-                    )
-                }
+                .mapNotNull { if (it.value == null) null else it as IndexedValue<BlaseballDatabaseGame> }
+                .associate { (i, v) -> i to v }
         }
 
         missingLocal.filter { it in chroniclerGames }.forEach { gameID ->

@@ -3,7 +3,6 @@ package dev.brella.blasement.common.events
 import dev.brella.kornea.blaseball.base.common.GameID
 import dev.brella.kornea.blaseball.base.common.TeamID
 import dev.brella.kornea.blaseball.base.common.beans.BlaseballDatabaseGame
-import dev.brella.kornea.blaseball.base.common.beans.BlaseballStreamDataGame
 import kotlinx.serialization.InternalSerializationApi
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.SerialName
@@ -42,7 +41,7 @@ sealed class ServerEvent {
 
     @Serializable
     @SerialName("GAME_UPDATE")
-    data class GameUpdate(val schedule: BlaseballStreamDataGame): ServerEvent() {
+    data class GameUpdate(val schedule: BlaseballDatabaseGame): ServerEvent() {
         override fun serialise(encoder: CompositeEncoder, descriptor: SerialDescriptor) {
             encoder.encodeSerializableElement(descriptor, 1, serializer(), this)
         }

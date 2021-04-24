@@ -44,10 +44,6 @@ import kotlin.math.roundToInt
 
 
 class TheBlasement(val json: Json, val httpClient: HttpClient, val blaseballApi: BlaseballApi, val chroniclerApi: ChroniclerApi) : CoroutineScope {
-    companion object {
-        val format = PatternDateFormat("yyyy-MM-dd'T'HH:mm:ss[.SS[S[SSS]]]Z", options = PatternDateFormat.Options.WITH_OPTIONAL)
-    }
-
     override val coroutineContext: CoroutineContext = Dispatchers.Default
 
     val liveData = LiveData(blaseballApi, chroniclerApi, this)
@@ -82,7 +78,7 @@ class TheBlasement(val json: Json, val httpClient: HttpClient, val blaseballApi:
                 count = 1
             ).get().first().endTime
 
-            return TimeRange(format.parse(startingTime), format.parse(endTime))
+            return TimeRange.fromChronicler(startingTime, endTime)
         } else {
             val startingTime = chroniclerApi.getGames(
                 order = EnumOrder.ASC,
@@ -102,9 +98,9 @@ class TheBlasement(val json: Json, val httpClient: HttpClient, val blaseballApi:
                 .getValue("data")
                 .jsonObject
 
-            return TimeRange(
-                format.parse(simulationData.getValue("godsDayDate").jsonPrimitive.content),
-                format.parse(simulationData.getValue("electionDate").jsonPrimitive.content)
+            return TimeRange.fromChronicler(
+                simulationData.getValue("godsDayDate").jsonPrimitive.content,
+                simulationData.getValue("electionDate").jsonPrimitive.content
             )
         }
     }

@@ -1,5 +1,5 @@
 
-import dev.brella.kornea.blaseball.base.common.beans.BlaseballStreamDataGame
+import dev.brella.kornea.blaseball.base.common.beans.BlaseballDatabaseGame
 import dev.brella.kornea.toolkit.coroutines.ReadWriteSemaphore
 import dev.brella.kornea.toolkit.coroutines.withReadPermit
 import dev.brella.kornea.toolkit.coroutines.withWritePermit
@@ -9,15 +9,15 @@ import kotlin.math.roundToInt
 
 class BlaseballUpdatingGame {
     val semaphore = ReadWriteSemaphore(16)
-    private var gameUpdates: Array<BlaseballStreamDataGame?> = arrayOfNulls(0)
+    private var gameUpdates: Array<BlaseballDatabaseGame?> = arrayOfNulls(0)
 
-    private val _updateLog: MutableSharedFlow<BlaseballStreamDataGame> = MutableSharedFlow()
-    val updateLog: SharedFlow<BlaseballStreamDataGame>
+    private val _updateLog: MutableSharedFlow<BlaseballDatabaseGame> = MutableSharedFlow()
+    val updateLog: SharedFlow<BlaseballDatabaseGame>
         get() = _updateLog
 
-    suspend fun getUpdates(): Array<BlaseballStreamDataGame?> = semaphore.withReadPermit { gameUpdates.copyOf() }
+    suspend fun getUpdates(): Array<BlaseballDatabaseGame?> = semaphore.withReadPermit { gameUpdates.copyOf() }
 
-    suspend fun issueUpdate(schedule: BlaseballStreamDataGame) {
+    suspend fun issueUpdate(schedule: BlaseballDatabaseGame) {
         semaphore.withReadPermit { if (schedule.playCount in gameUpdates.indices && gameUpdates[schedule.playCount] != null) return }
 
         val emitted = semaphore.withWritePermit {
@@ -25,7 +25,7 @@ class BlaseballUpdatingGame {
 
             if (schedule.playCount >= gameUpdates.size) {
                 //Grow the array
-                val newArray = arrayOfNulls<BlaseballStreamDataGame>(1 + (schedule.playCount * 1.5).roundToInt())
+                val newArray = arrayOfNulls<BlaseballDatabaseGame>(1 + (schedule.playCount * 1.5).roundToInt())
                 gameUpdates.copyInto(newArray)
                 gameUpdates = newArray
             }

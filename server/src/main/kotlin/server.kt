@@ -124,14 +124,19 @@ fun Application.module(testing: Boolean = false) {
                 blaseball(IBlaseballDataSourceWrapper(blaseballApi))
             }
 
+            redirectInternally("/season/17", "/collections")
+            route("/collections") {
+                blaseball(IBlaseballChroniclerDataSource.collections(client, blaseballApi, json))
+            }
+
             redirectInternally("/season/16", "/mass_production")
             route("/mass_production") {
-                blaseball(IBlaseballChroniclerDataSource.massProduction(client))
+                blaseball(IBlaseballChroniclerDataSource.massProduction(client, blaseballApi, json))
             }
 
             redirectInternally("/season/15", "/live_bait")
             route("/live_bait") {
-                blaseball(IBlaseballChroniclerDataSource.liveBait(client))
+                blaseball(IBlaseballChroniclerDataSource.liveBait(client, blaseballApi, json))
             }
         }
 

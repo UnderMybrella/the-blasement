@@ -52,7 +52,7 @@ kotlin {
                 implementation("dev.brella:kornea-toolkit:3.3.1-alpha")
                 implementation("dev.brella:ktornea-utils:1.1.0-alpha")
 
-                implementation("dev.brella:kornea-blaseball-api:2.1.3-alpha")
+                implementation("dev.brella:kornea-blaseball-api:2.1.4-alpha")
 
                 implementation("org.jetbrains.kotlinx:atomicfu:0.15.1")
 
