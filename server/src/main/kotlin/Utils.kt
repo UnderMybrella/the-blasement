@@ -1,27 +1,29 @@
+import dev.brella.blasement.OutgoingReadChannel
 import dev.brella.kornea.errors.common.KorneaResult
 import dev.brella.kornea.errors.common.doOnFailure
 import dev.brella.kornea.errors.common.doOnSuccess
 import dev.brella.ktornea.common.KorneaHttpResult
 import io.ktor.application.*
+import io.ktor.client.call.*
+import io.ktor.client.statement.*
+import io.ktor.features.*
 import io.ktor.http.*
 import io.ktor.request.*
 import io.ktor.response.*
 import io.ktor.routing.*
 import io.ktor.util.pipeline.*
 import io.ktor.utils.io.*
+import io.ktor.utils.io.core.*
 import io.r2dbc.h2.H2Connection
 import io.r2dbc.h2.H2Statement
 import kotlinx.coroutines.reactive.awaitSingle
 import kotlinx.coroutines.reactive.awaitSingleOrNull
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.jsonArray
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
-import kotlinx.serialization.json.long
-import kotlinx.serialization.json.put
+import kotlinx.serialization.json.*
 import org.reactivestreams.Publisher
 import reactor.core.publisher.Mono
+import java.io.ByteArrayOutputStream
+import java.util.zip.GZIPOutputStream
+import kotlin.coroutines.coroutineContext
 import kotlin.reflect.jvm.jvmName
 
 inline fun <reified T> H2Statement.bindNullable(index: Int, value: T?) =
@@ -107,6 +109,7 @@ suspend inline fun KorneaResult<*>.respondOnFailure(call: ApplicationCall) =
     this.doOnFailure { failure ->
         when (failure) {
             is KorneaHttpResult<*> -> {
+                call.response.header("X-Call-URL", failure.response.request.url.toURI().toASCIIString())
                 call.respondBytesWriter(failure.response.contentType(), failure.response.status) {
                     failure.response.content.copyTo(this)
                 }
@@ -120,10 +123,38 @@ suspend inline fun KorneaResult<*>.respondOnFailure(call: ApplicationCall) =
         }
     }
 
-suspend inline fun <reified T: Any> KorneaResult<T>.respond(call: ApplicationCall) =
+suspend inline fun <reified T : Any> KorneaResult<T>.respond(call: ApplicationCall) =
     this.doOnSuccess { call.respond(it) }
         .respondOnFailure(call)
 
-suspend inline fun <T, reified R: Any> KorneaResult<T>.respond(call: ApplicationCall, transform: (T) -> R) =
+suspend inline fun <T, reified R : Any> KorneaResult<T>.respond(call: ApplicationCall, transform: (T) -> R) =
     this.doOnSuccess { call.respond(transform(it)) }
         .respondOnFailure(call)
+
+
+public suspend inline fun ApplicationCall.respondJsonObject(producer: JsonObjectBuilder.() -> Unit) =
+    respond(buildJsonObject(producer))
+
+public suspend inline fun ApplicationCall.respondJsonArray(producer: JsonArrayBuilder.() -> Unit) =
+    respond(buildJsonArray(producer))
+
+public inline operator fun JsonObjectBuilder.set(key: String, value: String?) =
+    put(key, value)
+
+public inline operator fun JsonObjectBuilder.set(key: String, value: Number?) =
+    put(key, value)
+
+public inline operator fun JsonObjectBuilder.set(key: String, value: Boolean?) =
+    put(key, value)
+
+public inline operator fun JsonObjectBuilder.set(key: String, value: JsonElement) =
+    put(key, value)
+
+public suspend inline fun HttpResponse.readAllBytes() =
+    receive<Input>().readBytes()
+
+public fun String.compressGz(): ByteArray {
+    val baos = ByteArrayOutputStream()
+    GZIPOutputStream(baos).use { gzip -> gzip.write(this.encodeToByteArray()) }
+    return baos.toByteArray()
+}

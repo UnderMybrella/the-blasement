@@ -1,57 +1,36 @@
-import dev.brella.blasement.IBlaseballChroniclerDataSource
-import dev.brella.blasement.IBlaseballDataSource
-import dev.brella.blasement.IBlaseballDataSourceWrapper
+import dev.brella.blasement.BlasebackMachineAccelerated
+import dev.brella.blasement.BlasementDataSourceWrapper
 import dev.brella.blasement.blaseball
 import dev.brella.kornea.blaseball.BlaseballApi
 import dev.brella.kornea.blaseball.base.common.GameID
-import dev.brella.kornea.blaseball.base.common.PlayerID
-import dev.brella.kornea.blaseball.base.common.beans.BlaseballIdols
-import dev.brella.kornea.blaseball.base.common.beans.BlaseballTribute
 import dev.brella.kornea.blaseball.chronicler.ChroniclerApi
-import dev.brella.kornea.errors.common.KorneaResult
-import dev.brella.kornea.errors.common.filterNotNull
-import dev.brella.kornea.errors.common.map
-import dev.brella.ktornea.common.getAsResult
 import dev.brella.ktornea.common.installGranularHttp
 import io.ktor.application.*
 import io.ktor.client.*
 import io.ktor.client.engine.okhttp.*
 import io.ktor.client.features.*
 import io.ktor.client.features.compression.*
-import io.ktor.client.features.cookies.*
 import io.ktor.client.features.json.*
 import io.ktor.client.features.json.serializer.*
-import io.ktor.client.request.*
 import io.ktor.features.*
-import io.ktor.html.respondHtml
 import io.ktor.http.*
 import io.ktor.http.cio.websocket.*
 import io.ktor.http.content.*
 import io.ktor.response.*
 import io.ktor.routing.*
 import io.ktor.serialization.*
-import io.ktor.util.*
 import io.ktor.websocket.*
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
-import kotlinx.coroutines.runBlocking
 import kotlinx.html.*
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import websocket.BlasementDweller
 import java.time.Duration
-import kotlin.random.Random
-import kotlin.system.exitProcess
 import kotlin.time.ExperimentalTime
-import kotlin.time.measureTime
-import kotlin.time.nanoseconds
 import kotlin.time.seconds
 
 fun HTML.index() {
@@ -69,7 +48,10 @@ fun main(args: Array<String>) = io.ktor.server.netty.EngineMain.main(args)
 
 @OptIn(ExperimentalTime::class)
 fun Application.module(testing: Boolean = false) {
-    val json = Json { }
+    val json = Json {
+        ignoreUnknownKeys = true
+        encodeDefaults = true
+    }
 
     install(ContentNegotiation) {
         json(json)
@@ -121,22 +103,22 @@ fun Application.module(testing: Boolean = false) {
 
         route("/blaseball") {
             route("/current") {
-                blaseball(IBlaseballDataSourceWrapper(blaseballApi))
+                blaseball(client, BlasementDataSourceWrapper(blaseballApi))
             }
 
             redirectInternally("/season/17", "/collections")
             route("/collections") {
-                blaseball(IBlaseballChroniclerDataSource.collections(client, blaseballApi, json))
+                blaseball(client, BlasebackMachineAccelerated.collections(client, blaseballApi, json, 5.seconds))
             }
 
             redirectInternally("/season/16", "/mass_production")
             route("/mass_production") {
-                blaseball(IBlaseballChroniclerDataSource.massProduction(client, blaseballApi, json))
+                blaseball(client, BlasebackMachineAccelerated.massProduction(client, blaseballApi, json, 5.seconds))
             }
 
             redirectInternally("/season/15", "/live_bait")
             route("/live_bait") {
-                blaseball(IBlaseballChroniclerDataSource.liveBait(client, blaseballApi, json))
+                blaseball(client, BlasebackMachineAccelerated.liveBait(client, blaseballApi, json, 5.seconds))
             }
         }
 
@@ -146,7 +128,7 @@ fun Application.module(testing: Boolean = false) {
             call.respondRedirect("/${gamesToday.random().id.id}${call.parameters.getAll("following")?.joinToString("/", prefix = "/") ?: ""}")
         }
 
-        get("/{game}") {
+        /*get("/{game}") {
             val game = call.parameters["game"] ?: return@get call.respond(HttpStatusCode.BadRequest)
 
             val games = blasement.liveData.getGame(GameID(game)) ?: return@get call.respond(HttpStatusCode.InternalServerError)
@@ -247,7 +229,7 @@ fun Application.module(testing: Boolean = false) {
               <div id="output"></div>
             """.trimIndent()
             )
-        }
+        }*/
 
         val clients: MutableList<BlasementDweller> = ArrayList()
 
