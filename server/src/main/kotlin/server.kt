@@ -1,5 +1,6 @@
 import dev.brella.blasement.BlasebackMachineAccelerated
 import dev.brella.blasement.BlasementDataSourceWrapper
+import dev.brella.blasement.BlasementLeague
 import dev.brella.blasement.blaseball
 import dev.brella.kornea.blaseball.BlaseballApi
 import dev.brella.kornea.blaseball.base.common.GameID
@@ -28,6 +29,7 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import org.slf4j.event.Level
 import websocket.BlasementDweller
 import java.time.Duration
 import kotlin.time.ExperimentalTime
@@ -63,6 +65,9 @@ fun Application.module(testing: Boolean = false) {
 
     install(ConditionalHeaders)
     install(StatusPages)
+    install(CallLogging) {
+        level = Level.INFO
+    }
 
     install(WebSockets) {
         pingPeriod = Duration.ofSeconds(60) // Disabled (null) by default
@@ -103,22 +108,22 @@ fun Application.module(testing: Boolean = false) {
 
         route("/blaseball") {
             route("/current") {
-                blaseball(client, BlasementDataSourceWrapper(blaseballApi))
+                blaseball(BlasementLeague(client, BlasementDataSourceWrapper(blaseballApi)))
             }
 
             redirectInternally("/season/17", "/collections")
             route("/collections") {
-                blaseball(client, BlasebackMachineAccelerated.collections(client, blaseballApi, json, 5.seconds))
+                blaseball(BlasementLeague(client, BlasebackMachineAccelerated.collections(client, blaseballApi, json, 5.seconds)))
             }
 
             redirectInternally("/season/16", "/mass_production")
             route("/mass_production") {
-                blaseball(client, BlasebackMachineAccelerated.massProduction(client, blaseballApi, json, 5.seconds))
+                blaseball(BlasementLeague(client, BlasebackMachineAccelerated.massProduction(client, blaseballApi, json, 5.seconds)))
             }
 
             redirectInternally("/season/15", "/live_bait")
             route("/live_bait") {
-                blaseball(client, BlasebackMachineAccelerated.liveBait(client, blaseballApi, json, 5.seconds))
+                blaseball(BlasementLeague(client, BlasebackMachineAccelerated.liveBait(client, blaseballApi, json, 5.seconds)))
             }
         }
 

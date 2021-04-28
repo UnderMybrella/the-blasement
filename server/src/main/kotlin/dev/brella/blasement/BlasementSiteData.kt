@@ -19,6 +19,7 @@ import io.ktor.http.*
 import io.ktor.response.*
 import io.ktor.utils.io.core.*
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
@@ -26,9 +27,11 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonObject
 import readAllBytes
+import java.io.File
 import kotlin.coroutines.CoroutineContext
 
 class BlasementSiteData(val http: HttpClient, val source: BlasementDataSource, val base: String) {
@@ -53,6 +56,7 @@ class BlasementSiteData(val http: HttpClient, val source: BlasementDataSource, v
     private val _twoJs: MutableStateFlow<ByteArray> = MutableStateFlow(byteArrayOf())
 
     var siteDataJob: Job? = null
+    val cacheDir = File("cache").also { it.mkdirs() }
 
     fun launch(scope: CoroutineScope, context: CoroutineContext = scope.coroutineContext) {
         siteDataJob?.cancel()
@@ -88,37 +92,77 @@ class BlasementSiteData(val http: HttpClient, val source: BlasementDataSource, v
 
                 for (data in results) {
                     if (newIndexHtml == null && data.path.matches(INDEX_HTML_REGEX)) {
-                        http.getAsResult<HttpResponse>("https://api.sibr.dev/chronicler/v1${data.downloadUrl}") {
+                        val cacheFile = File(cacheDir, "${data.hash}.html")
+                        if (cacheFile.exists()) {
+                            newIndexHtml = withContext(Dispatchers.IO) { data to cacheFile.readBytes() }
+                        } else {
+                            http.getAsResult<HttpResponse>("https://api.sibr.dev/chronicler/v1${data.downloadUrl}") {
 //                            timeout {
 //                                socketTimeoutMillis = HttpTimeout.INFINITE_TIMEOUT_MS
 //                                requestTimeoutMillis = HttpTimeout.INFINITE_TIMEOUT_MS
 //                                connectTimeoutMillis = HttpTimeout.INFINITE_TIMEOUT_MS
 //                            }
-                        }.doOnSuccess { newIndexHtml = data to it.readAllBytes() }
+                            }.doOnSuccess {
+                                val bytes = it.readAllBytes()
+                                withContext(Dispatchers.IO) { cacheFile.writeBytes(bytes) }
+
+                                newIndexHtml = data to bytes
+                            }
+                        }
                     } else if (new2Js == null && data.path.matches(TWO_CHUNK_JS_REGEX)) {
-                        http.getAsResult<HttpResponse>("https://api.sibr.dev/chronicler/v1${data.downloadUrl}") {
+                        val cacheFile = File(cacheDir, "${data.hash}.js")
+                        if (cacheFile.exists()) {
+                            new2Js = withContext(Dispatchers.IO) { data to cacheFile.readBytes() }
+                        } else {
+                            http.getAsResult<HttpResponse>("https://api.sibr.dev/chronicler/v1${data.downloadUrl}") {
 //                            timeout {
 //                                socketTimeoutMillis = HttpTimeout.INFINITE_TIMEOUT_MS
 //                                requestTimeoutMillis = HttpTimeout.INFINITE_TIMEOUT_MS
 //                                connectTimeoutMillis = HttpTimeout.INFINITE_TIMEOUT_MS
 //                            }
-                        }.doOnSuccess { new2Js = data to it.readAllBytes() }
+                            }.doOnSuccess {
+                                val bytes = it.readAllBytes()
+                                withContext(Dispatchers.IO) { cacheFile.writeBytes(bytes) }
+
+                                new2Js = data to bytes
+                            }
+                        }
                     } else if (newMainJs == null && data.path.matches(MAIN_CHUNK_JS_REGEX)) {
-                        http.getAsResult<HttpResponse>("https://api.sibr.dev/chronicler/v1${data.downloadUrl}") {
+                        val cacheFile = File(cacheDir, "${data.hash}.js")
+                        if (cacheFile.exists()) {
+                            newMainJs = withContext(Dispatchers.IO) { data to cacheFile.readBytes() }
+                        } else {
+                            http.getAsResult<HttpResponse>("https://api.sibr.dev/chronicler/v1${data.downloadUrl}") {
 //                            timeout {
 //                                socketTimeoutMillis = HttpTimeout.INFINITE_TIMEOUT_MS
 //                                requestTimeoutMillis = HttpTimeout.INFINITE_TIMEOUT_MS
 //                                connectTimeoutMillis = HttpTimeout.INFINITE_TIMEOUT_MS
 //                            }
-                        }.doOnSuccess { newMainJs = data to it.readAllBytes() }
+                            }.doOnSuccess {
+                                val bytes = it.readAllBytes()
+                                withContext(Dispatchers.IO) { cacheFile.writeBytes(bytes) }
+
+                                newMainJs = data to bytes
+                            }
+                        }
                     } else if (newMainCss == null && data.path.matches(MAIN_CHUNK_CSS_REGEX)) {
-                        http.getAsResult<HttpResponse>("https://api.sibr.dev/chronicler/v1${data.downloadUrl}") {
+                        val cacheFile = File(cacheDir, "${data.hash}.css")
+                        if (cacheFile.exists()) {
+                            newMainCss = withContext(Dispatchers.IO) { data to cacheFile.readBytes() }
+                        } else {
+                            http.getAsResult<HttpResponse>("https://api.sibr.dev/chronicler/v1${data.downloadUrl}") {
 //                            timeout {
 //                                socketTimeoutMillis = HttpTimeout.INFINITE_TIMEOUT_MS
 //                                requestTimeoutMillis = HttpTimeout.INFINITE_TIMEOUT_MS
 //                                connectTimeoutMillis = HttpTimeout.INFINITE_TIMEOUT_MS
 //                            }
-                        }.doOnSuccess { newMainCss = data to it.readAllBytes() }
+                            }.doOnSuccess {
+                                val bytes = it.readAllBytes()
+                                withContext(Dispatchers.IO) { cacheFile.writeBytes(bytes) }
+
+                                newMainCss = data to bytes
+                            }
+                        }
                     }
 
                     if (newIndexHtml != null && newMainCss != null && newMainJs != null && new2Js != null) break

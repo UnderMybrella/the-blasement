@@ -17,28 +17,32 @@ repositories {
 }
 
 dependencies {
+    val ktor_version = "1.5.3"
+
     testImplementation(kotlin("test-junit5"))
     testImplementation("org.junit.jupiter:junit-jupiter-api:5.6.0")
     testRuntimeOnly("org.junit.jupiter:junit-jupiter-engine:5.6.0")
 
-    implementation("io.ktor:ktor-server-netty:1.5.0")
-    implementation("io.ktor:ktor-client-serialization:1.5.0")
-    implementation("io.ktor:ktor-client-encoding:1.5.0")
-    implementation("io.ktor:ktor-serialization:1.5.0")
-    implementation("io.ktor:ktor-html-builder:1.5.0")
-    implementation("io.ktor:ktor-websockets:1.5.0")
+    implementation("io.ktor:ktor-server-netty:$ktor_version")
+    implementation("io.ktor:ktor-client-serialization:$ktor_version")
+    implementation("io.ktor:ktor-client-encoding:$ktor_version")
+    implementation("io.ktor:ktor-serialization:$ktor_version")
+    implementation("io.ktor:ktor-html-builder:$ktor_version")
+    implementation("io.ktor:ktor-websockets:$ktor_version")
 
     implementation("dev.brella:kornea-io:5.2.0-alpha")
     implementation("dev.brella:kornea-toolkit:3.3.1-alpha")
 
-    implementation("io.ktor:ktor-client-okhttp:1.5.0")
-    implementation("io.ktor:ktor-client-encoding:1.5.0")
-    implementation("io.ktor:ktor-client-core-jvm:1.5.0")
+    implementation("io.ktor:ktor-client-okhttp:$ktor_version")
+    implementation("io.ktor:ktor-client-encoding:$ktor_version")
+    implementation("io.ktor:ktor-client-core-jvm:$ktor_version")
 
     implementation("dev.brella:ktornea-utils:1.2.3-alpha")
 
-    implementation("dev.brella:kornea-blaseball-base:2.2.3-alpha")
+    implementation("dev.brella:kornea-blaseball-base:2.2.6-alpha")
     implementation("dev.brella:kornea-blaseball-api:2.1.4-alpha")
+
+    implementation("ch.qos.logback:logback-classic:1.2.3")
 
     implementation("org.jetbrains.kotlinx:atomicfu:0.15.1")
 

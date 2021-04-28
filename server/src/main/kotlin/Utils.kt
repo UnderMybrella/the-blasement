@@ -132,11 +132,11 @@ suspend inline fun <T, reified R : Any> KorneaResult<T>.respond(call: Applicatio
         .respondOnFailure(call)
 
 
-public suspend inline fun ApplicationCall.respondJsonObject(producer: JsonObjectBuilder.() -> Unit) =
-    respond(buildJsonObject(producer))
+public suspend inline fun ApplicationCall.respondJsonObject(statusCode: HttpStatusCode = HttpStatusCode.OK, producer: JsonObjectBuilder.() -> Unit) =
+    respond(statusCode, buildJsonObject(producer))
 
-public suspend inline fun ApplicationCall.respondJsonArray(producer: JsonArrayBuilder.() -> Unit) =
-    respond(buildJsonArray(producer))
+public suspend inline fun ApplicationCall.respondJsonArray(statusCode: HttpStatusCode = HttpStatusCode.OK, producer: JsonArrayBuilder.() -> Unit) =
+    respond(statusCode, buildJsonArray(producer))
 
 public inline operator fun JsonObjectBuilder.set(key: String, value: String?) =
     put(key, value)

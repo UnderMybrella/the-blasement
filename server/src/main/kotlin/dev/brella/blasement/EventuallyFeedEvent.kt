@@ -48,5 +48,5 @@ fun EventuallyFeedEvent.toBlaseball() =
         category,
         description,
         nuts,
-        BlaseballFeedMetadata.Unknown(metadata ?: emptyMap())
+        BlaseballFeedMetadata.Unknown(metadata?.toMutableMap() ?: HashMap())
     )

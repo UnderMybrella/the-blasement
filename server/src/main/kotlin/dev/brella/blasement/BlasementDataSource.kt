@@ -2,10 +2,14 @@ package dev.brella.blasement
 
 import com.soywiz.klock.DateTime
 import com.soywiz.klock.DateTimeTz
+import dev.brella.blasement.common.events.FanID
 import dev.brella.kornea.blaseball.BlaseballApi
-import dev.brella.kornea.blaseball.base.common.BLASEBALL_TIME_PATTERN
+import dev.brella.kornea.blaseball.base.common.FeedID
 import dev.brella.kornea.blaseball.base.common.ItemID
 import dev.brella.kornea.blaseball.base.common.ModificationID
+import dev.brella.kornea.blaseball.base.common.PlayerID
+import dev.brella.kornea.blaseball.base.common.TeamID
+import dev.brella.kornea.blaseball.base.common.beans.BlaseballDatabasePlayer
 import dev.brella.kornea.blaseball.base.common.beans.BlaseballFeedEvent
 import dev.brella.kornea.blaseball.base.common.beans.BlaseballGlobalEvent
 import dev.brella.kornea.blaseball.base.common.beans.BlaseballIdols
@@ -13,47 +17,46 @@ import dev.brella.kornea.blaseball.base.common.beans.BlaseballItem
 import dev.brella.kornea.blaseball.base.common.beans.BlaseballMod
 import dev.brella.kornea.blaseball.base.common.beans.BlaseballSimulationData
 import dev.brella.kornea.blaseball.base.common.beans.BlaseballTribute
-import dev.brella.kornea.blaseball.chronicler.EnumOrder
 import dev.brella.kornea.errors.common.KorneaResult
 import dev.brella.kornea.errors.common.cast
-import dev.brella.kornea.errors.common.doOnSuccess
 import dev.brella.kornea.errors.common.getOrBreak
 import dev.brella.kornea.errors.common.map
 import dev.brella.ktornea.common.getAsResult
 import dev.brella.ktornea.common.streamAsResult
 import getJsonArray
 import getString
-import io.ktor.application.*
 import io.ktor.client.*
-import io.ktor.client.call.*
 import io.ktor.client.request.*
-import io.ktor.client.statement.*
 import io.ktor.http.*
-import io.ktor.request.*
-import io.ktor.response.*
-import io.ktor.routing.*
-import io.ktor.util.*
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.mapNotNull
-import kotlinx.coroutines.isActive
-import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.buildJsonArray
-import kotlinx.serialization.json.buildJsonObject
-import redirectInternally
-import respond
-import respondJsonArray
-import respondJsonObject
-import respondOnFailure
-import set
-import java.io.File
-import kotlin.math.roundToLong
 
 interface BlasementDataSource {
     suspend fun getFeedByPhase(phase: Int, season: Int): KorneaResult<List<BlaseballFeedEvent>>
-    suspend fun getGlobalFeed(category: Int? = null, limit: Int = 100, type: Int? = null, sort: EnumOrder? = null, start: String? = null): KorneaResult<List<BlaseballFeedEvent>>
+    suspend fun getGlobalFeed(category: Int? = null, limit: Int = 100, type: Int? = null, sort: Int? = null, start: String? = null, upNuts: Map<FeedID, Set<FanID>> = emptyMap(), fanID: FanID? = null): KorneaResult<List<BlaseballFeedEvent>>
+    suspend fun getPlayerFeed(
+        id: PlayerID,
+        category: Int? = null,
+        limit: Int = 100,
+        type: Int? = null,
+        sort: Int? = null,
+        start: String? = null,
+        upNuts: Map<FeedID, Set<FanID>> = emptyMap(),
+        fanID: FanID? = null
+    ): KorneaResult<List<BlaseballFeedEvent>>
+
+    suspend fun getTeamFeed(
+        id: TeamID,
+        category: Int? = null,
+        limit: Int = 100,
+        type: Int? = null,
+        sort: Int? = null,
+        start: String? = null,
+        upNuts: Map<FeedID, Set<FanID>> = emptyMap(),
+        fanID: FanID? = null
+    ): KorneaResult<List<BlaseballFeedEvent>>
 
     suspend fun getIdolBoard(): KorneaResult<BlaseballIdols>
     suspend fun getHallOfFlamePlayers(): KorneaResult<List<BlaseballTribute>>
@@ -63,6 +66,8 @@ interface BlasementDataSource {
 
     suspend fun getItems(itemIDs: Iterable<ItemID>): KorneaResult<List<BlaseballItem>>
     suspend fun getModifications(modIDs: Iterable<ModificationID>): KorneaResult<List<BlaseballMod>>
+
+    suspend fun getPlayers(playerIDs: Iterable<PlayerID>): KorneaResult<List<BlaseballDatabasePlayer>>
 
     suspend fun getGlobalEvents(): KorneaResult<List<BlaseballGlobalEvent>>
     suspend fun getSimulationData(): KorneaResult<BlaseballSimulationData>
@@ -77,8 +82,81 @@ data class BlasementDataSourceWrapper(val blaseball: BlaseballApi) : BlasementDa
     override suspend fun getFeedByPhase(phase: Int, season: Int): KorneaResult<List<BlaseballFeedEvent>> =
         blaseball.getFeedByPhase(phase, season)
 
-    override suspend fun getGlobalFeed(category: Int?, limit: Int, type: Int?, sort: EnumOrder?, start: String?): KorneaResult<List<BlaseballFeedEvent>> =
-        blaseball.getGlobalFeed(category, limit, type, if (sort == EnumOrder.ASC) 1 else if (sort == EnumOrder.DESC) 0 else null, start)
+    override suspend fun getGlobalFeed(category: Int?, limit: Int, type: Int?, sort: Int?, start: String?, upNuts: Map<FeedID, Set<FanID>>, fanID: FanID?): KorneaResult<List<BlaseballFeedEvent>> =
+        blaseball.getGlobalFeed(category, limit, type, sort, start)
+            .let { result ->
+                if (fanID == null) {
+                    result.map { feedList ->
+                        feedList.map { event ->
+                            upNuts[event.id]?.let { event.nuts += it.size }
+                            event
+                        }
+                    }
+                } else {
+                    result.map { feedList ->
+                        feedList.map { event ->
+                            upNuts[event.id]?.let {
+                                if (fanID in it) event.metadata?.upnut = true
+
+                                event.nuts += it.size
+                            }
+                            event
+                        }
+                    }
+                }
+            }
+
+    override suspend fun getPlayerFeed(id: PlayerID, category: Int?, limit: Int, type: Int?, sort: Int?, start: String?, upNuts: Map<FeedID, Set<FanID>>, fanID: FanID?): KorneaResult<List<BlaseballFeedEvent>> =
+        blaseball.getPlayerFeed(id, category, limit, type, sort, start)
+            .let { result ->
+                if (fanID == null) {
+                    result.map { feedList ->
+                        feedList.map { event ->
+                            upNuts[event.id]?.let { event.nuts += it.size }
+                            event
+                        }
+                    }
+                } else {
+                    result.map { feedList ->
+                        feedList.map { event ->
+                            upNuts[event.id]?.let {
+                                upNuts[event.id]?.let {
+                                    if (fanID in it) event.metadata?.upnut = true
+
+                                    event.nuts += it.size
+                                }
+                            }
+                            event
+                        }
+                    }
+                }
+            }
+
+    override suspend fun getTeamFeed(id: TeamID, category: Int?, limit: Int, type: Int?, sort: Int?, start: String?, upNuts: Map<FeedID, Set<FanID>>, fanID: FanID?): KorneaResult<List<BlaseballFeedEvent>> =
+        blaseball.getTeamFeed(id, category, limit, type, sort, start)
+            .let { result ->
+                if (fanID == null) {
+                    result.map { feedList ->
+                        feedList.map { event ->
+                            upNuts[event.id]?.let { event.nuts += it.size }
+                            event
+                        }
+                    }
+                } else {
+                    result.map { feedList ->
+                        feedList.map { event ->
+                            upNuts[event.id]?.let {
+                                upNuts[event.id]?.let {
+                                    if (fanID in it) event.metadata?.upnut = true
+
+                                    event.nuts += it.size
+                                }
+                            }
+                            event
+                        }
+                    }
+                }
+            }
 
     override suspend fun getIdolBoard(): KorneaResult<BlaseballIdols> =
         blaseball.getIdolBoard()
@@ -101,6 +179,9 @@ data class BlasementDataSourceWrapper(val blaseball: BlaseballApi) : BlasementDa
     override suspend fun getModifications(modIDs: Iterable<ModificationID>): KorneaResult<List<BlaseballMod>> =
         blaseball.getModifications(modIDs)
 
+    override suspend fun getPlayers(playerIDs: Iterable<PlayerID>): KorneaResult<List<BlaseballDatabasePlayer>> =
+        blaseball.getPlayers(playerIDs)
+
     override suspend fun getLiveDataStream(): KorneaResult<Flow<String>> =
         blaseball.client.streamAsResult {
             method = HttpMethod.Get
@@ -117,7 +198,6 @@ data class BlasementDataSourceWrapper(val blaseball: BlaseballApi) : BlasementDa
     override suspend fun wait(until: DateTimeTz) =
         delay((until - now()).millisecondsLong)
 }
-
 
 
 suspend fun HttpClient.getSibrLatestFile(pathRegex: Regex, before: String? = null): KorneaResult<String> {

@@ -4,11 +4,16 @@ import com.soywiz.klock.DateTimeTz
 import com.soywiz.klock.hours as klockHours
 import com.soywiz.klock.milliseconds as klockMilliseconds
 import com.soywiz.klock.parse
+import dev.brella.blasement.common.events.FanID
 import dev.brella.blasement.common.events.TimeRange
 import dev.brella.kornea.blaseball.BlaseballApi
 import dev.brella.kornea.blaseball.base.common.BLASEBALL_TIME_PATTERN
+import dev.brella.kornea.blaseball.base.common.FeedID
 import dev.brella.kornea.blaseball.base.common.ItemID
 import dev.brella.kornea.blaseball.base.common.ModificationID
+import dev.brella.kornea.blaseball.base.common.PlayerID
+import dev.brella.kornea.blaseball.base.common.TeamID
+import dev.brella.kornea.blaseball.base.common.beans.BlaseballDatabasePlayer
 import dev.brella.kornea.blaseball.base.common.beans.BlaseballFeedEvent
 import dev.brella.kornea.blaseball.base.common.beans.BlaseballGlobalEvent
 import dev.brella.kornea.blaseball.base.common.beans.BlaseballIdols
@@ -16,8 +21,8 @@ import dev.brella.kornea.blaseball.base.common.beans.BlaseballItem
 import dev.brella.kornea.blaseball.base.common.beans.BlaseballMod
 import dev.brella.kornea.blaseball.base.common.beans.BlaseballSimulationData
 import dev.brella.kornea.blaseball.base.common.beans.BlaseballTribute
+import dev.brella.kornea.blaseball.base.common.joinParams
 import dev.brella.kornea.blaseball.base.common.json.EventuallyFeedList
-import dev.brella.kornea.blaseball.chronicler.EnumOrder
 import dev.brella.kornea.errors.common.KorneaResult
 import dev.brella.kornea.errors.common.doOnSuccess
 import dev.brella.kornea.errors.common.flatMap
@@ -92,10 +97,12 @@ abstract class BlasebackMachineSource(val http: HttpClient, val blaseball: Blase
             }
         }.shareIn(BlasebackMachineSource, SharingStarted.Eagerly, 1)
 
-    suspend inline fun <reified T> chroniclerV2(type: String, at: String = BLASEBALL_TIME_PATTERN.format(now())): KorneaResult<T> =
+    suspend inline fun <reified T> chroniclerV2(type: String, at: String = BLASEBALL_TIME_PATTERN.format(now()), builder: HttpRequestBuilder.() -> Unit = {}): KorneaResult<T> =
         http.getAsResult<JsonObject>("https://api.sibr.dev/chronicler/v2/entities") {
             parameter("type", type)
             parameter("at", at)
+
+            builder()
         }.flatMap { json ->
             try {
                 KorneaResult.successOrEmpty(
@@ -104,6 +111,23 @@ abstract class BlasebackMachineSource(val http: HttpClient, val blaseball: Blase
                         ?.jsonObject
                         ?.get("data")
                         ?.let { this.format.decodeFromString(this.format.encodeToString(it)) }
+                )
+            } catch (th: Throwable) {
+                KorneaResult.thrown(th)
+            }
+        }
+
+    suspend inline fun <reified T> chroniclerV2List(type: String, at: String = BLASEBALL_TIME_PATTERN.format(now()), builder: HttpRequestBuilder.() -> Unit = {}): KorneaResult<List<T>> =
+        http.getAsResult<JsonObject>("https://api.sibr.dev/chronicler/v2/entities") {
+            parameter("type", type)
+            parameter("at", at)
+
+            builder()
+        }.flatMap { json ->
+            try {
+                KorneaResult.successOrEmpty(
+                    json.getJsonArray("items")
+                        .mapNotNull { element -> element.jsonObject["data"]?.let { this.format.decodeFromString(this.format.encodeToString(it)) } }
                 )
             } catch (th: Throwable) {
                 KorneaResult.thrown(th)
@@ -154,23 +178,140 @@ abstract class BlasebackMachineSource(val http: HttpClient, val blaseball: Blase
 
     override suspend fun getFeedByPhase(phase: Int, season: Int): KorneaResult<List<BlaseballFeedEvent>> =
         http.getAsResult<List<EventuallyFeedEvent>>("https://api.sibr.dev/eventually/events") {
-            parameter("after", BLASEBALL_TIME_PATTERN.format(now()))
-            parameter("before", to)
+//            parameter("after", BLASEBALL_TIME_PATTERN.format(now()))
+            parameter("before", now().utc.unixMillisLong / 1000)
             parameter("phase_min", phase)
             parameter("phase_max", phase)
             parameter("seasons", season)
         }.map { list -> list.map { it.toBlaseball() } }
 
-    override suspend fun getGlobalFeed(category: Int?, limit: Int, type: Int?, sort: EnumOrder?, start: String?): KorneaResult<List<BlaseballFeedEvent>> =
-        http.getAsResult<EventuallyFeedList>("https://api.sibr.dev/eventually/events") {
-            parameter("after", (start?.let(BLASEBALL_TIME_PATTERN::parse) ?: now()).utc.unixMillisLong / 1000)
-            parameter("before", BLASEBALL_TIME_PATTERN.parse(to).utc.unixMillisLong / 1000)
+    override suspend fun getGlobalFeed(category: Int?, limit: Int, type: Int?, sort: Int?, start: String?, upNuts: Map<FeedID, Set<FanID>>, fanID: FanID?): KorneaResult<List<BlaseballFeedEvent>> {
+        val result = http.getAsResult<EventuallyFeedList>("https://api.sibr.dev/eventually/events") {
+//            parameter("after", (start?.let(BLASEBALL_TIME_PATTERN::parse) ?: now()).utc.unixMillisLong / 1000)
+            parameter("before", now().utc.unixMillisLong / 1000)
             parameter("limit", limit)
 
-            if (category != null) parameter("metadata.category", category)
+            if (category != null) parameter("category", category)
             if (type != null) parameter("type", type)
-            if (sort != null) parameter("sortorder", sort)
+            if (start != null) parameter("offset", start)
+
+            when (sort) {
+                0 -> parameter("sortorder", "desc")
+                1 -> parameter("sortorder", "asc")
+            }
+        }.let { result ->
+            if (fanID == null) {
+                result.map { feedList ->
+                    feedList.map { event ->
+                        upNuts[event.id]?.let { event.nuts += it.size }
+                        event
+                    }
+                }
+            } else {
+                result.map { feedList ->
+                    feedList.map { event ->
+                        upNuts[event.id]?.let {
+                            if (fanID in it) event.metadata?.upnut = true
+
+                            event.nuts += it.size
+                        }
+                        event
+                    }
+                }
+            }
         }
+
+        if (sort == 2 || sort == 3) return result.map { list -> list.sortedByDescending(BlaseballFeedEvent::nuts) }
+
+        return result
+    }
+
+    override suspend fun getPlayerFeed(id: PlayerID, category: Int?, limit: Int, type: Int?, sort: Int?, start: String?, upNuts: Map<FeedID, Set<FanID>>, fanID: FanID?): KorneaResult<List<BlaseballFeedEvent>> {
+        val result = http.getAsResult<EventuallyFeedList>("https://api.sibr.dev/eventually/events") {
+//            parameter("after", (start?.let(BLASEBALL_TIME_PATTERN::parse) ?: now()).utc.unixMillisLong / 1000)
+            parameter("before", now().utc.unixMillisLong / 1000)
+            parameter("limit", limit)
+            parameter("playerTags", id.id)
+
+            if (category != null) parameter("category", category)
+            if (type != null) parameter("type", type)
+            if (start != null) parameter("offset", start)
+
+            when (sort) {
+                0 -> parameter("sortorder", "desc")
+                1 -> parameter("sortorder", "asc")
+            }
+        }.let { result ->
+            if (fanID == null) {
+                result.map { feedList ->
+                    feedList.map { event ->
+                        upNuts[event.id]?.let { event.nuts += it.size }
+                        event
+                    }
+                }
+            } else {
+                result.map { feedList ->
+                    feedList.map { event ->
+                        upNuts[event.id]?.let {
+                            if (fanID in it) event.metadata?.upnut = true
+
+                            event.nuts += it.size
+                        }
+                        event
+                    }
+                }
+            }
+        }
+
+        if (sort == 2 || sort == 3) return result.map { list -> list.sortedByDescending(BlaseballFeedEvent::nuts) }
+
+        return result
+    }
+
+    override suspend fun getTeamFeed(id: TeamID, category: Int?, limit: Int, type: Int?, sort: Int?, start: String?, upNuts: Map<FeedID, Set<FanID>>, fanID: FanID?): KorneaResult<List<BlaseballFeedEvent>> {
+        val result = http.getAsResult<EventuallyFeedList>("https://api.sibr.dev/eventually/events") {
+//            parameter("after", (start?.let(BLASEBALL_TIME_PATTERN::parse) ?: now()).utc.unixMillisLong / 1000)
+            parameter("before", now().utc.unixMillisLong / 1000)
+            parameter("limit", limit)
+            parameter("teamTags", id.id)
+
+            if (category != null) parameter("category", category)
+            if (type != null) parameter("type", type)
+            if (start != null) parameter("offset", start)
+
+            when (sort) {
+                0 -> parameter("sortorder", "desc")
+                1 -> parameter("sortorder", "asc")
+//                null -> {
+//                }
+//                else -> parameter("sortorder", sort)
+            }
+        }.let { result ->
+            if (fanID == null) {
+                result.map { feedList ->
+                    feedList.map { event ->
+                        upNuts[event.id]?.let { event.nuts += it.size }
+                        event
+                    }
+                }
+            } else {
+                result.map { feedList ->
+                    feedList.map { event ->
+                        upNuts[event.id]?.let {
+                            if (fanID in it) event.metadata?.upnut = true
+
+                            event.nuts += it.size
+                        }
+                        event
+                    }
+                }
+            }
+        }
+
+        if (sort == 2 || sort == 3) return result.map { list -> list.sortedByDescending(BlaseballFeedEvent::nuts) }
+
+        return result
+    }
 
     override suspend fun getIdolBoard(): KorneaResult<BlaseballIdols> =
         chroniclerV2("idols")
@@ -186,6 +327,9 @@ abstract class BlasebackMachineSource(val http: HttpClient, val blaseball: Blase
 
     override suspend fun getModifications(modIDs: Iterable<ModificationID>): KorneaResult<List<BlaseballMod>> =
         blaseball.getModifications(modIDs)
+
+    override suspend fun getPlayers(playerIDs: Iterable<PlayerID>): KorneaResult<List<BlaseballDatabasePlayer>> =
+        chroniclerV2List("player") { parameter("id", playerIDs.joinParams()) }
 
     override suspend fun getGlobalEvents(): KorneaResult<List<BlaseballGlobalEvent>> =
         chroniclerV2("globalevents")
@@ -210,7 +354,7 @@ class BlasebackMachineAccelerated(http: HttpClient, blaseball: BlaseballApi, jso
             BlasebackMachineAccelerated(http, blaseball, json, "2021-04-05T00:00:00Z", "2021-04-12T00:00:00Z", ratePerSecond)
     }
 
-    val beginning = BLASEBALL_TIME_PATTERN.parse(from) + 12.klockHours + 3.klockHours
+    val beginning = BLASEBALL_TIME_PATTERN.parse(from) + 24.klockHours + 12.klockHours + 3.klockHours
 
     val start = TimeSource.Monotonic.markNow()
     override val liveFeedFlow: SharedFlow<String> = launchLiveFeedFlow()

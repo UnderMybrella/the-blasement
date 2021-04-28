@@ -1,15 +1,21 @@
 package dev.brella.blasement
 
+import dev.brella.blasement.common.*
+import dev.brella.blasement.common.events.FanID
 import dev.brella.kornea.blaseball.base.common.BLASEBALL_TIME_PATTERN
+import dev.brella.kornea.blaseball.base.common.FeedID
 import dev.brella.kornea.blaseball.base.common.ItemID
 import dev.brella.kornea.blaseball.base.common.ModificationID
-import dev.brella.kornea.blaseball.chronicler.EnumOrder
+import dev.brella.kornea.blaseball.base.common.PlayerID
+import dev.brella.kornea.blaseball.base.common.TeamID
 import dev.brella.kornea.errors.common.doOnSuccess
 import io.ktor.application.*
 import io.ktor.client.*
 import io.ktor.client.call.*
 import io.ktor.client.request.*
 import io.ktor.client.statement.*
+import io.ktor.client.utils.*
+import io.ktor.features.*
 import io.ktor.http.*
 import io.ktor.request.*
 import io.ktor.response.*
@@ -19,55 +25,67 @@ import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.isActive
-import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.add
 import kotlinx.serialization.json.buildJsonArray
-import kotlinx.serialization.json.buildJsonObject
 import redirectInternally
 import respond
 import respondJsonArray
 import respondJsonObject
-import respondOnFailure
 import set
-import java.io.File
+import java.util.*
+import kotlin.collections.HashMap
+import kotlin.collections.HashSet
 
-class BlasementLeague(val source: BlasementDataSource) {
+class BlasementLeague(val client: HttpClient, val source: BlasementDataSource) {
+    val fans: MutableMap<FanID, BlaseballFanPayload> = HashMap()
+    val upNuts: MutableMap<FeedID, MutableSet<FanID>> = HashMap()
 
-}
+    fun fanIDFor(key: String): FanID =
+        FanID(UUID.nameUUIDFromBytes(key.encodeToByteArray()).toString())
 
-fun Route.blaseballWebpage(client: HttpClient, source: BlasementDataSource) {
-    val base = this.toString()
-    println("Route: $source @ $base")
-    val siteData = BlasementSiteData(client, source, base)
-    siteData.launch(GlobalScope)
+    inline val ApplicationCall.fanID
+        get() = fanIDFor(request.origin.remoteHost)
 
-    get("/") { siteData.respondIndexHtml(call) }
+    inline val ApplicationCall.fan
+        get() = fans.computeIfAbsent(fanID) { fanID ->
+            createFanPayload(fanID, "user@example.com", TeamID("d2634113-b650-47b9-ad95-673f8e28e687"))
+        }
 
-    get("/{...}") {
-        println("Tailcard url ${call.request.path()}")
+    fun routingWebpage(route: Route) =
+        with(route) {
+            val base = this.toString()
+            println("Route: $source @ $base")
+            val siteData = BlasementSiteData(client, source, base)
+            siteData.launch(GlobalScope)
 
-        siteData.respondIndexHtml(call)
-    }
 
-    get("/main.js") { siteData.respondMainJs(call) }
+            handle { siteData.respondIndexHtml(call) }
+            get { siteData.respondIndexHtml(call) }
+            get("/") { siteData.respondIndexHtml(call) }
 
-    get("/2.js") { siteData.respond2Js(call) }
+            get("/{...}") {
+                println("Tailcard url ${call.request.path()}")
 
-    get("/main.css") { siteData.respondMainCss(call) }
-}
+                siteData.respondIndexHtml(call)
+            }
 
-fun Route.blaseball(client: HttpClient, source: BlasementDataSource) {
+            get("/main.js") { siteData.respondMainJs(call) }
 
-//    get("/{...}") {
-//        val url = "http://localhost:8080${call.request.path()}"
-//        println("Returning $url")
-//        val response = client.get<HttpResponse>(url)
-//
-//        call.respondBytes(response.receive(), response.contentType())
-//    }
+            get("/2.js") { siteData.respond2Js(call) }
 
-    blaseballWebpage(client, source)
+            get("/main.css") { siteData.respondMainCss(call) }
+        }
 
-    route("/api") api@{
+    fun routing(route: Route) =
+        with(route) {
+            routingWebpage(this)
+
+            route("/api") { api() }
+            route("/database") { database() }
+            route("/events") { events() }
+        }
+
+    fun Route.api() {
         get("/time") {
             call.respondText(BLASEBALL_TIME_PATTERN.format(source.now()))
         }
@@ -94,7 +112,9 @@ fun Route.blaseball(client: HttpClient, source: BlasementDataSource) {
         }
 
         get("/getUser") {
-            call.respondJsonObject {
+            call.respond(call.fan)
+
+/*            call.respondJsonObject {
                 this["id"] = "00000000-0000-0000-0000-000000000000"
                 this["email"] = "example@domain.org"
                 this["appleId"] = JsonNull
@@ -102,7 +122,7 @@ fun Route.blaseball(client: HttpClient, source: BlasementDataSource) {
                 this["facebookId"] = JsonNull
                 this["name"] = JsonNull
                 this["password"] = JsonNull
-                this["coins"] = 0
+                this["coins"] = 1000
                 this["lastActive"] = "1970-01-01T00:00:00Z"
                 this["created"] = "1970-01-01T00:00:00Z"
                 this["loginStreak"] = 0
@@ -113,33 +133,139 @@ fun Route.blaseball(client: HttpClient, source: BlasementDataSource) {
                 this["squirrels"] = 0
                 this["idol"] = JsonNull
                 this["snacks"] = buildJsonObject {
-//                    this["Max_Bet"] = 1
+                    this["Max_Bet"] = 1
+                    this["Peanuts"] = 1000
+                    this["Stadium_Access"] = 1
                 }
                 this["lightMode"] = false
-                this["packSize"] = 1
+                this["packSize"] = 3
                 this["spread"] = buildJsonArray { }
                 this["coffee"] = 0
                 this["favNumber"] = 0
                 this["snackOrder"] = buildJsonArray {
-//                    add("Max_Bet")
+                    add("Max_Bet")
+                    add("Peanuts")
+                    add("Stadium_Access")
                 }
                 this["trackers"] = buildJsonObject {
                     this["BEGS"] = 0
                     this["BETS"] = 0
                     this["VOTES_CAST"] = 0
-                    this["SNACKS_BOUGHT"] = 0
+                    this["SNACKS_BOUGHT"] = 1
                     this["SNACK_UPGRADES"] = 0
                 }
-            }
+            }*/
         }
         get("/getUserRewards") {
             call.respondJsonObject {
-                this["coins"] = 0
-                this["toasts"] = buildJsonArray { }
+                this["coins"] = call.fan.coins
+                this["toasts"] = buildJsonArray {}
                 this["lightMode"] = false
             }
         }
         get("/getActiveBets") { call.respondJsonArray { } }
+        post("/bet") {
+            val bet = call.receive<BlaseballBetPayload>()
+
+            println("Betting: $bet")
+
+            call.respond(HttpStatusCode.OK, EmptyContent)
+        }
+
+        post("/chooseIdol") {
+            val idol = call.receive<BlaseballChooseIdolPayload>()
+
+            println("Choosing Idol: $idol")
+
+            call.respond(HttpStatusCode.OK, EmptyContent)
+        }
+
+        post("/upNut") {
+            val payload = call.receive<BlaseballUpNutPayload>()
+
+            val fanID = call.fanID
+            val fan = call.fan
+
+            val existingPeanuts = fan.snacks.peanuts
+
+            if (existingPeanuts <= 0) return@post call.respondJsonObject(HttpStatusCode.BadRequest) {
+                this["error"] = "You don't have any Peanuts."
+            }
+
+            val existing = upNuts.computeIfAbsent(payload.eventId) { HashSet() }
+            if (fanID in existing) return@post call.respondJsonObject(HttpStatusCode.BadRequest) {
+                this["error"] = "You've already Upshelled that event."
+            }
+
+            existing.add(fanID)
+
+            call.respondJsonObject {
+                this["message"] = "You Upshelled an event."
+            }
+        }
+
+        post("/eatADangPeanut") {
+            val payload = call.receive<BlaseballEatADangNutPayload>()
+
+            val fanID = call.fanID
+            val fan = call.fan
+
+            val existingPeanuts = fan.snacks.peanuts
+            val eaten = payload.amount
+
+            if (existingPeanuts < eaten) return@post call.respondJsonObject(HttpStatusCode.BadRequest) {
+                this["error"] = "You don't have enough Peanuts."
+            } else if (eaten <= 0) return@post call.respondJsonObject(HttpStatusCode.BadRequest) {
+                this["error"] = "Invalid Peanut count."
+            }
+
+            fans[fanID] = fan.copy(peanutsEaten = fan.peanutsEaten + eaten, snacks = fan.snacks.copy(peanuts = existingPeanuts - eaten))
+
+            call.respond(HttpStatusCode.OK, EmptyContent)
+        }
+
+        post("/updateProfile") {
+            val payload = call.receive<BlaseballUpdateProfilePayload>()
+
+            val fanID = call.fanID
+            val fan = call.fan
+
+            fans[fanID] = fan.copy(
+                favNumber = payload.favNumber,
+                coffee = payload.coffee
+            )
+
+            call.respond(HttpStatusCode.OK, EmptyContent)
+        }
+
+        post("/buySnackNoUpgrade") {
+            val payload = call.receive<BlaseballBuySnackPayload>()
+
+            call.respond(HttpStatusCode.OK, EmptyContent)
+        }
+
+        post("/buySnack") {
+            val payload = call.receive<BlaseballBuySnackPayload>()
+
+            call.respond(HttpStatusCode.OK, EmptyContent)
+        }
+
+        post("/sellSnack") {
+            val payload = call.receive<BlaseballSellSnackPayload>()
+
+            call.respond(HttpStatusCode.OK, EmptyContent)
+        }
+
+        post("/buySlot") {
+
+            call.respond(HttpStatusCode.OK, EmptyContent)
+        }
+
+        post("/sellSlot") {
+            val payload = call.receive<BlaseballSellSlotPayload>()
+
+            call.respond(HttpStatusCode.OK, EmptyContent)
+        }
 
         redirectInternally("/idol_board", "/getIdols")
         get("/getIdols") {
@@ -152,7 +278,7 @@ fun Route.blaseball(client: HttpClient, source: BlasementDataSource) {
         }
     }
 
-    route("/database") {
+    fun Route.database() {
         get("/blood") {
             source.getBloodTypes(
                 call.parameters.getAll("ids")
@@ -185,6 +311,14 @@ fun Route.blaseball(client: HttpClient, source: BlasementDataSource) {
             ).respond(call)
         }
 
+        get("/players") {
+            source.getPlayers(
+                call.parameters.getAll("ids")?.map(::PlayerID)
+                ?: call.parameters["id"]?.let(::listOf)?.map(::PlayerID)
+                ?: emptyList()
+            ).respond(call)
+        }
+
         redirectInternally("/ticker", "/globalEvents")
         get("/globalEvents") { source.getGlobalEvents().respond(call) }
 
@@ -210,16 +344,44 @@ fun Route.blaseball(client: HttpClient, source: BlasementDataSource) {
                         category = call.parameters["category"]?.toIntOrNull(),
                         limit = call.parameters["limit"]?.toIntOrNull() ?: 100,
                         type = call.parameters["type"]?.toIntOrNull(),
-                        sort = call.parameters["sort"]?.let { str ->
-                            when (str.toLowerCase()) {
-                                "0" -> EnumOrder.DESC
-                                "1" -> EnumOrder.ASC
-                                "asc" -> EnumOrder.ASC
-                                "desc" -> EnumOrder.DESC
-                                else -> null
-                            }
-                        },
-                        start = call.parameters["start"]
+                        sort = call.parameters["sort"]?.toIntOrNull(),
+                        start = call.parameters["start"],
+                        upNuts = upNuts,
+                        fanID = call.fanID
+                    ).respond(call)
+                } catch (th: Throwable) {
+                    th.printStackTrace()
+                }
+            }
+
+            get("/player") {
+                try {
+                    source.getPlayerFeed(
+                        id = PlayerID(call.parameters.getOrFail("id")),
+                        category = call.parameters["category"]?.toIntOrNull(),
+                        limit = call.parameters["limit"]?.toIntOrNull() ?: 100,
+                        type = call.parameters["type"]?.toIntOrNull(),
+                        sort = call.parameters["sort"]?.toIntOrNull(),
+                        start = call.parameters["start"],
+                        upNuts = upNuts,
+                        fanID = call.fanID
+                    ).respond(call)
+                } catch (th: Throwable) {
+                    th.printStackTrace()
+                }
+            }
+
+            get("/team") {
+                try {
+                    source.getTeamFeed(
+                        id = TeamID(call.parameters.getOrFail("id")),
+                        category = call.parameters["category"]?.toIntOrNull(),
+                        limit = call.parameters["limit"]?.toIntOrNull() ?: 100,
+                        type = call.parameters["type"]?.toIntOrNull(),
+                        sort = call.parameters["sort"]?.toIntOrNull(),
+                        start = call.parameters["start"],
+                        upNuts = upNuts,
+                        fanID = call.fanID
                     ).respond(call)
                 } catch (th: Throwable) {
                     th.printStackTrace()
@@ -237,7 +399,7 @@ fun Route.blaseball(client: HttpClient, source: BlasementDataSource) {
         }
     }
 
-    route("/events") {
+    fun Route.events() {
         get("/streamData") {
             try {
                 call.respondTextWriter(ContentType.Text.EventStream) {
@@ -262,3 +424,6 @@ fun Route.blaseball(client: HttpClient, source: BlasementDataSource) {
         }
     }
 }
+
+fun Route.blaseballWebpage(league: BlasementLeague) = league.routingWebpage(this)
+fun Route.blaseball(league: BlasementLeague) = league.routing(this)
