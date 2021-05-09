@@ -1,6 +1,6 @@
 package dev.brella.blasement.common.events
 
-import dev.brella.kornea.blaseball.base.common.EnumBlaseballItem
+import dev.brella.kornea.blaseball.base.common.EnumBlaseballSnack
 import dev.brella.kornea.blaseball.base.common.GameID
 import dev.brella.kornea.blaseball.base.common.TeamID
 import kotlinx.serialization.InternalSerializationApi
@@ -107,11 +107,11 @@ sealed class ClientEvent {
 
         @Serializable
         @SerialName("PURCHASE_ITEM")
-        data class PurchaseItem(val item: @Serializable(ItemSerializer::class) EnumBlaseballItem, val amount: Int): PerformFanAction()
+        data class PurchaseItem(val item: @Serializable(ItemSerializer::class) EnumBlaseballSnack, val amount: Int): PerformFanAction()
 
         @Serializable
         @SerialName("SELL_ITEM")
-        data class SellItem(val item: @Serializable(ItemSerializer::class) EnumBlaseballItem, val amount: Int): PerformFanAction()
+        data class SellItem(val item: @Serializable(ItemSerializer::class) EnumBlaseballSnack, val amount: Int): PerformFanAction()
 
         @Serializable
         @SerialName("PURCHASE_SLOT")

@@ -1,21 +1,26 @@
 package dev.brella.blasement.common.events
 
-import dev.brella.kornea.blaseball.base.common.BlaseballRewardShopItem
-import dev.brella.kornea.blaseball.base.common.BlaseballRewardShopItem.Companion.SLOT_MULTIPLIERS
+import com.soywiz.klock.DateTimeTz
+import dev.brella.blasement.common.BlaseballFanFrontendPayload
+import dev.brella.blasement.common.BlaseballFanSnacksPayload
+import dev.brella.kornea.blaseball.base.common.BlaseballRewardShopSnack
+import dev.brella.kornea.blaseball.base.common.BlaseballRewardShopSnack.Companion.SLOT_MULTIPLIERS
 import dev.brella.kornea.blaseball.base.common.BlaseballUUID
-import dev.brella.kornea.blaseball.base.common.EnumBlaseballItem
+import dev.brella.kornea.blaseball.base.common.EnumBlaseballSnack
 import dev.brella.kornea.blaseball.base.common.GameID
 import dev.brella.kornea.blaseball.base.common.PlayerID
 import dev.brella.kornea.blaseball.base.common.TeamID
+import dev.brella.kornea.blaseball.base.common.UUID
 import dev.brella.kornea.blaseball.base.common.UUIDMap
+import dev.brella.kornea.blaseball.base.common.json.BlaseballDateTimeSerialiser
 import kotlinx.serialization.KSerializer
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.descriptors.SerialDescriptor
 import kotlinx.serialization.encoding.Decoder
 import kotlinx.serialization.encoding.Encoder
 import kotlin.math.roundToInt
-import kotlin.reflect.KProperty
 
 @Serializable
 data class BlaseballBet(val team: TeamID, val bet: Int)
@@ -69,32 +74,33 @@ enum class EnumBetFail {
     NOT_ENOUGH_COINS,
     BET_TOO_HIGH,
     CANT_BET_ZERO,
-    INVALID_TEAM
+    INVALID_TEAM,
+    NO_SNAKE_OIL
 }
 
-object ItemSerializer : KSerializer<EnumBlaseballItem> {
+object ItemSerializer : KSerializer<EnumBlaseballSnack> {
     override val descriptor: SerialDescriptor = String.serializer().descriptor
 
-    override fun deserialize(decoder: Decoder): EnumBlaseballItem =
-        EnumBlaseballItem.valueOf(decoder.decodeString())
+    override fun deserialize(decoder: Decoder): EnumBlaseballSnack =
+        EnumBlaseballSnack.valueOf(decoder.decodeString())
 
-    override fun serialize(encoder: Encoder, value: EnumBlaseballItem) {
+    override fun serialize(encoder: Encoder, value: EnumBlaseballSnack) {
         encoder.encodeString(value.name)
     }
 }
 
-sealed class BlaseballInventorySlot : Map.Entry<EnumBlaseballItem, Int> {
-    abstract val item: EnumBlaseballItem
+sealed class BlaseballInventorySlot : Map.Entry<EnumBlaseballSnack, Int> {
+    abstract val item: EnumBlaseballSnack
     abstract val count: Int
 
-    override val key: EnumBlaseballItem get() = item
+    override val key: EnumBlaseballSnack get() = item
     override val value: Int get() = count
 
     @Serializable
-    data class Immutable(override val item: @Serializable(ItemSerializer::class) EnumBlaseballItem, override val count: Int) : BlaseballInventorySlot()
+    data class Immutable(override val item: @Serializable(ItemSerializer::class) EnumBlaseballSnack, override val count: Int) : BlaseballInventorySlot()
 
     @Serializable
-    data class Mutable(override val item: @Serializable(ItemSerializer::class) EnumBlaseballItem, override var count: Int) : BlaseballInventorySlot(), MutableMap.MutableEntry<EnumBlaseballItem, Int> {
+    data class Mutable(override val item: @Serializable(ItemSerializer::class) EnumBlaseballSnack, override var count: Int) : BlaseballInventorySlot(), MutableMap.MutableEntry<EnumBlaseballSnack, Int> {
         override fun setValue(newValue: Int): Int {
             val prev = count
             count = newValue
@@ -106,157 +112,31 @@ sealed class BlaseballInventorySlot : Map.Entry<EnumBlaseballItem, Int> {
     }
 }
 
-//@Serializable
-//sealed class BlasementOldInventory<T: BlaseballInventorySlot> : List<T?>, Map<EnumBlaseballItem, Int> {
-//    abstract var backing: Array<T?>
-//    override val size: Int get() = backing.size
-//
-//    val isFull: Boolean
-//        get() = null !in backing
-//
-//    inline fun <reified T> Array<out T?>.filterNotNullArray(): Array<T> {
-//        val array = arrayOfNulls<T>(count { it != null })
-//        var index = 0
-//
-//        forEach { if (it != null) array[index++] = it }
-//
-//        return array as Array<T>
-//    }
-//
-//    @Serializable
-//    class Immutable(override var backing: Array<BlaseballInventorySlot.Immutable?>) : BlasementOldInventory<BlaseballInventorySlot.Immutable>()
-//
-//    class Mutable(override var backing: Array<BlaseballInventorySlot.Mutable?>) : BlasementOldInventory<BlaseballInventorySlot.Mutable>(), MutableMap<EnumBlaseballItem, Int> {
-//        override val entries: MutableSet<MutableMap.MutableEntry<EnumBlaseballItem, Int>>
-//            get() = backing.filterNotNull().toMutableSet()
-//        override val keys: MutableSet<EnumBlaseballItem>
-//            get() = backing.filterNotNull().mapTo(HashSet(), BlaseballInventorySlot::item)
-//        override val values: MutableCollection<Int>
-//            get() = backing.filterNotNull().mapTo(HashSet(), BlaseballInventorySlot::count)
-//
-//        operator fun getValue(thisRef: Any?, property: KProperty<*>): BlasementOldInventory.Immutable =
-//            Immutable(Array(backing.size) { backing[it]?.toImmutable() })
-//
-//        fun boughtSlots(count: Int = 1): EnumPurchaseSlotFail? {
-//            if (count <= 0) return EnumPurchaseSlotFail.INVALID_AMOUNT
-//
-//            val current = backing
-//            backing = arrayOfNulls(current.size + count)
-//            current.copyInto(backing)
-//
-//            return null
-//        }
-//
-//        fun soldSlots(count: Int = 1): EnumSellSlotFail? {
-//            if (count <= 0) return EnumSellSlotFail.INVALID_AMOUNT
-//
-//            val current = backing.filterNotNullArray()
-//            if (current.size >= backing.size - count) return EnumSellSlotFail.NO_EMPTY_SLOTS
-//            backing = arrayOfNulls(current.size - count)
-//            current.copyInto(backing)
-//
-//            return null
-//        }
-//
-//        public operator fun set(index: Int, element: BlaseballInventorySlot.Mutable?): BlaseballInventorySlot.Mutable? {
-//            val prev = backing[index]
-//            backing[index] = element?.takeUnless { it.count <= 0 }
-//            return prev
-//        }
-//
-//        override fun clear() = throw UnsupportedOperationException("Blaseball inventory cannot be cleared")
-//
-//        override fun put(key: EnumBlaseballItem, value: Int): Int? {
-//            var index = backing.indexOfFirst { slot -> slot?.item == key }
-//            if (index == -1) {
-//                //Can we add to this array at the moment?
-//                index = backing.indexOf(null)
-//
-//                //Whoops, can't add to the inventory!
-//                if (index == -1) throw UnsupportedOperationException("Blaseball inventory is full!")
-//            }
-//
-//            val element = backing[index]
-//            if (element == null) {
-//                if (value > 0) backing[index] = BlaseballInventorySlot.Mutable(key, value)
-//                return null
-//            }
-//
-//            val prev = element.count
-//            if (value > 0)
-//                element.count = value
-//            else
-//                backing[index] = null
-//            return prev
-//        }
-//
-//        override fun putAll(from: Map<out EnumBlaseballItem, Int>) =
-//            from.forEach { (item, count) -> put(item, count) }
-//
-//        override fun remove(key: EnumBlaseballItem): Int? {
-//            val index = backing.indexOfFirst { slot -> slot?.item == key }
-//            if (index == -1) return null
-//            val element = backing[index]
-//            backing[index] = null
-//            return element?.count
-//        }
-//    }
-//
-//    override fun contains(element: T?): Boolean =
-//        backing.any { slot -> slot?.item == element?.item }
-//
-//    operator fun contains(item: EnumBlaseballItem?): Boolean =
-//        backing.any { slot -> slot?.item == item }
-//
-//    override fun containsAll(elements: Collection<T?>): Boolean =
-//        elements.toMutableList().also { list ->
-//            backing.forEach { slot -> list.removeAll { it?.item == slot?.item } }
-//        }.isNotEmpty()
-//
-//    override fun get(index: Int): T? =
-//        backing[index]
-//
-//    override fun indexOf(element: T?): Int =
-//        backing.indexOfFirst { slot -> slot?.item == element?.item }
-//
-//    override fun isEmpty(): Boolean = backing.isEmpty() || backing.all { it == null }
-//
-//    override fun iterator(): Iterator<T?> = backing.iterator()
-//    override fun listIterator(): ListIterator<T?> = backing.asList().listIterator()
-//    override fun listIterator(index: Int): ListIterator<T?> = backing.asList().listIterator(index)
-//    override fun subList(fromIndex: Int, toIndex: Int): List<T?> = backing.asList().subList(fromIndex, toIndex)
-//
-//    override fun lastIndexOf(element: T?): Int = backing.indexOfLast { slot -> slot?.item == element?.item }
-//
-//    override val entries: Set<Map.Entry<EnumBlaseballItem, Int>>
-//        get() = backing.filterNotNull().toSet()
-//
-//    override fun containsKey(key: EnumBlaseballItem): Boolean = backing.any { slot -> slot?.item == key }
-//
-//    override fun containsValue(value: Int): Boolean = backing.any { slot -> slot?.count == value }
-//
-//    override fun get(key: EnumBlaseballItem): Int? = backing.firstOrNull { slot -> slot?.item == key }?.count
-//
-//    override val keys: Set<EnumBlaseballItem>
-//        get() = backing.filterNotNull().mapTo(HashSet(), BlaseballInventorySlot::item)
-//    override val values: Collection<Int>
-//        get() = backing.filterNotNull().mapTo(HashSet(), BlaseballInventorySlot::count)
-//}
-
-typealias BlasementInventory = Map<@Serializable(ItemSerializer::class) EnumBlaseballItem, Int>
-typealias BlasementMutableInventory = MutableMap<@Serializable(ItemSerializer::class) EnumBlaseballItem, Int>
+typealias BlasementInventory = Map<@Serializable(ItemSerializer::class) EnumBlaseballSnack, Int>
+typealias BlasementMutableInventory = MutableMap<@Serializable(ItemSerializer::class) EnumBlaseballSnack, Int>
 
 @Serializable
-inline class FanID(override val id: String) : BlaseballUUID
+inline class FanID(override val uuid: UUID) : BlaseballUUID
 
 interface BlasementFan {
     val id: FanID
+    val email: String?
+    val appleId: String?
+    val googleId: String?
+    val facebookId: String?
 
-    val name: String
+    val name: String?
+    val password: String?
+
     val coins: Long
 
+    val lastActive: DateTimeTz
+    val created: DateTimeTz
+
+    val loginStreak: Int
+
     val idol: PlayerID?
-    val favouriteTeam: TeamID
+    val favouriteTeam: TeamID?
 
     val hasUnlockedShop: Boolean
     val hasUnlockedElections: Boolean
@@ -264,6 +144,17 @@ interface BlasementFan {
     val inventory: BlasementInventory
     val inventorySpace: Int
     val currentBets: Map<GameID, BlaseballBet>
+
+    val peanutsEaten: Int
+    val squirrels: Int
+
+    val lightMode: Boolean
+    val spread: List<Int>
+
+    val coffee: Int?
+    val favNumber: Int?
+
+    val trackers: BlaseballFanTrackers
 
     val payoutRate: Double
         get() = SLOT_MULTIPLIERS[inventorySpace - 1]
@@ -274,8 +165,8 @@ interface BlasementFan {
     suspend fun beg(): Pair<Int?, EnumBegFail?>
     suspend fun purchaseShopMembershipCard(): Pair<Int?, EnumUnlockFail?>
 
-    suspend fun purchase(amount: Int, item: EnumBlaseballItem): Pair<Int?, EnumPurchaseItemFail?>
-    suspend fun sell(amount: Int, item: EnumBlaseballItem): Pair<Int?, EnumSellItemFail?>
+    suspend fun buySnack(amount: Int, item: EnumBlaseballSnack): Pair<Int?, EnumPurchaseItemFail?>
+    suspend fun sell(amount: Int, item: EnumBlaseballSnack): Pair<Int?, EnumSellItemFail?>
 
     suspend fun purchaseSlot(amount: Int = 1): Pair<Int?, EnumPurchaseSlotFail?>
     suspend fun sellSlot(amount: Int = 1): Pair<Int?, EnumSellSlotFail?>
@@ -284,44 +175,180 @@ interface BlasementFan {
 }
 
 inline fun BlaseballInventorySlot.sellsFor(amount: Int): Int = item.sellsFor(count, amount)
-inline fun EnumBlaseballItem.sellsFor(amountInInventory: Int, amountToSell: Int): Int =
+inline fun EnumBlaseballSnack.sellsFor(amountInInventory: Int, amountToSell: Int): Int =
     when (this) {
-        EnumBlaseballItem.VOTES -> (100 * amountToSell) / 4
-        EnumBlaseballItem.PEANUTS -> amountToSell / 4
-        EnumBlaseballItem.FLUTES -> ((2e3 * amountToSell) / 4).roundToInt()
-        EnumBlaseballItem.PIZZA, EnumBlaseballItem.CHEESE_BOARD, EnumBlaseballItem.APPLE, EnumBlaseballItem.BREAD_CRUMBS, EnumBlaseballItem.TAROT_SPREAD -> 0
-        else -> tiers?.let { it.slice((amountInInventory - amountToSell) until amountInInventory).sumBy(BlaseballRewardShopItem::price) / 4 } ?: 0
+        EnumBlaseballSnack.VOTES -> (100 * amountToSell) / 4
+        EnumBlaseballSnack.PEANUTS -> amountToSell / 4
+        EnumBlaseballSnack.FLUTES -> ((2e3 * amountToSell) / 4).roundToInt()
+        EnumBlaseballSnack.PIZZA, EnumBlaseballSnack.CHEESE_BOARD, EnumBlaseballSnack.APPLE, EnumBlaseballSnack.BREAD_CRUMBS, EnumBlaseballSnack.TAROT_SPREAD -> 0
+        else -> tiers?.let { it.slice((amountInInventory - amountToSell) until amountInInventory).sumBy(BlaseballRewardShopSnack::price) / 4 } ?: 0
     }
 
 //inline operator fun Int?.plus(other: Int?): Int? = if (this == null || other == null) null else this + other
 
 inline fun BlasementFan.toPayload() =
-    BlasementFanPayload(id, name, coins, idol, favouriteTeam, hasUnlockedShop, hasUnlockedElections, inventory, inventorySpace, UUIDMap(currentBets))
+    BlasementFanPayload(
+        id,
+        email,
+        appleId,
+        googleId,
+        facebookId,
+        name,
+        password,
+        coins,
+        lastActive,
+        created,
+        loginStreak,
+        idol,
+        favouriteTeam,
+        hasUnlockedShop,
+        hasUnlockedElections,
+        peanutsEaten,
+        squirrels,
+        lightMode,
+        spread,
+        coffee,
+        favNumber,
+        inventory,
+        inventorySpace,
+        UUIDMap(currentBets),
+        trackers
+    )
+
+inline fun BlasementFan.toFrontendPayload() =
+    BlaseballFanFrontendPayload(
+        id,
+        email,
+        appleId,
+        googleId,
+        facebookId,
+        name,
+        password,
+        coins,
+        lastActive,
+        created,
+        loginStreak,
+        favouriteTeam,
+        hasUnlockedShop,
+        hasUnlockedElections,
+        peanutsEaten,
+        squirrels,
+        idol,
+        BlaseballFanSnacksPayload(
+            votes = inventory[EnumBlaseballSnack.VOTES],
+            flutes = inventory[EnumBlaseballSnack.FLUTES],
+            snakeOil = inventory[EnumBlaseballSnack.SNAKE_OIL]?.minus(1),
+            popcorn = inventory[EnumBlaseballSnack.POPCORN]?.minus(1),
+            stalePopcorn = inventory[EnumBlaseballSnack.STALE_POPCORN]?.minus(1),
+            breakfast = inventory[EnumBlaseballSnack.BREAKFAST]?.minus(1),
+            taffy = inventory[EnumBlaseballSnack.TAFFY]?.minus(1),
+            lemonade = inventory[EnumBlaseballSnack.LEMONADE]?.minus(1),
+            chips = inventory[EnumBlaseballSnack.CHIPS]?.minus(1),
+            burger = inventory[EnumBlaseballSnack.BURGER]?.minus(1),
+            meatball = inventory[EnumBlaseballSnack.MEATBALL]?.minus(1),
+            hotDog = inventory[EnumBlaseballSnack.HOT_DOG]?.minus(1),
+            sunflowerSeeds = inventory[EnumBlaseballSnack.SUNFLOWER_SEEDS]?.minus(1),
+            pickles = inventory[EnumBlaseballSnack.PICKLES]?.minus(1),
+            slushie = inventory[EnumBlaseballSnack.SLUSHIE]?.minus(1),
+            sundae = inventory[EnumBlaseballSnack.SUNDAE]?.minus(1),
+            wetPretzel = inventory[EnumBlaseballSnack.WET_PRETZEL]?.minus(1),
+            doughnut = inventory[EnumBlaseballSnack.DOUGHNUT]?.minus(1),
+            pizza = inventory[EnumBlaseballSnack.PIZZA],
+            cheeseBoard = inventory[EnumBlaseballSnack.CHEESE_BOARD],
+            apple = inventory[EnumBlaseballSnack.APPLE],
+            peanuts = inventory[EnumBlaseballSnack.PEANUTS],
+            tarotSpread = inventory[EnumBlaseballSnack.TAROT_SPREAD],
+            breadCrumbs = inventory[EnumBlaseballSnack.BREAD_CRUMBS]
+        ),
+        lightMode,
+        inventorySpace,
+        spread,
+        coffee,
+        favNumber,
+        inventory.keys.toCollection(ArrayList<EnumBlaseballSnack?>()).let { order ->
+            if (order.size < inventorySpace) {
+                order.apply { repeat(inventorySpace - order.size) { add(null) } }
+            } else {
+                order
+            }
+        },
+        trackers
+    )
 
 @Serializable
 data class BlasementFanPayload(
     val id: FanID,
 
-    val name: String,
+    val email: String?,
+    val appleId: String?,
+    val googleId: String?,
+    val facebookId: String?,
+
+    val name: String?,
+    val password: String?,
+
     val coins: Long,
+
+    val lastActive: @Serializable(BlaseballDateTimeSerialiser::class) DateTimeTz,
+    val created: @Serializable(BlaseballDateTimeSerialiser::class) DateTimeTz,
+
+    val loginStreak: Int,
+
     val idol: PlayerID? = null,
-    val favouriteTeam: TeamID,
+    val favouriteTeam: TeamID?,
 
     val hasUnlockedShop: Boolean = false,
     val hasUnlockedElections: Boolean = false,
 
+    val peanutsEaten: Int,
+    val squirrels: Int,
+    val lightMode: Boolean,
+    val spread: List<Int>,
+    val coffee: Int?,
+    val favNumber: Int?,
+
     val inventory: BlasementInventory = emptyMap(),
     val inventorySpace: Int = 8,
-    val currentBets: UUIDMap<GameID, BlaseballBet> = UUIDMap(HashMap())
+    val currentBets: UUIDMap<GameID, BlaseballBet> = UUIDMap(HashMap()),
+
+    val trackers: BlaseballFanTrackers
 )
 
 data class BlasementFanDatabasePayload(
     val fanID: FanID,
-    val fanName: String,
+    val email: String?,
+    val appleId: String?,
+    val googleId: String?,
+    val facebookId: String?,
+    val name: String?,
+    val password: String?,
     val coins: Long,
+    val lastActive: @Serializable(with = BlaseballDateTimeSerialiser::class) DateTimeTz,
+    val created: @Serializable(with = BlaseballDateTimeSerialiser::class) DateTimeTz,
+    val loginStreak: Int,
     val idol: PlayerID?,
-    val favouriteTeam: TeamID,
+    val favouriteTeam: TeamID?,
     val hasUnlockedShop: Boolean,
     val hasUnlockedElections: Boolean,
-    val inventorySpace: Int
+    val peanutsEaten: Int,
+    val squirrels: Int,
+    val lightMode: Boolean,
+    val inventorySpace: Int,
+    val spread: List<Int>,
+    val coffee: Int?,
+    val favNumber: Int?
+)
+
+@Serializable
+data class BlaseballFanTrackers(
+    @SerialName("BEGS")
+    val begs: Int = 0,
+    @SerialName("BETS")
+    val bets: Int = 0,
+    @SerialName("VOTES_CAST")
+    val votesCast: Int = 0,
+    @SerialName("SNACKS_BOUGHT")
+    val snacksBought: Int = 0,
+    @SerialName("SNACK_UPGRADES")
+    val snackUpgrades: Int = 0
 )

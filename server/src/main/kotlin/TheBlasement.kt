@@ -1,62 +1,85 @@
-import com.soywiz.klock.DateFormat
-import com.soywiz.klock.PatternDateFormat
+import com.soywiz.klock.DateTime
 import com.soywiz.klock.parse
+import dev.brella.blasement.bindAs
+import dev.brella.blasement.bindAsNullable
+import dev.brella.blasement.common.events.BlaseballFanTrackers
 import dev.brella.blasement.common.events.BlasementFanDatabasePayload
-import dev.brella.blasement.common.events.EnumGainedMoneyReason
 import dev.brella.blasement.common.events.FanID
-import dev.brella.blasement.common.events.ServerEvent
 import dev.brella.blasement.common.events.TimeRange
+import dev.brella.blasement.common.getJsonObjectOrNull
+import dev.brella.blasement.common.getStringOrNull
+import dev.brella.blasement.common.uuidOrNull
 import dev.brella.kornea.blaseball.BlaseballApi
-import dev.brella.kornea.blaseball.base.common.BettingPayouts
-import dev.brella.kornea.blaseball.base.common.EnumBlaseballItem
+import dev.brella.kornea.blaseball.base.common.BLASEBALL_TIME_PATTERN
+import dev.brella.kornea.blaseball.base.common.EnumBlaseballSnack
 import dev.brella.kornea.blaseball.base.common.PlayerID
 import dev.brella.kornea.blaseball.base.common.TeamID
 import dev.brella.kornea.blaseball.base.common.beans.BlaseballDatabaseGame
 import dev.brella.kornea.blaseball.chronicler.ChroniclerApi
 import dev.brella.kornea.blaseball.chronicler.EnumOrder
 import dev.brella.ktornea.common.getAsResult
+import io.jsonwebtoken.JwtBuilder
 import io.jsonwebtoken.Jwts
 import io.jsonwebtoken.SignatureAlgorithm
 import io.jsonwebtoken.security.Keys
 import io.ktor.client.*
-import io.r2dbc.h2.H2ConnectionConfiguration
-import io.r2dbc.h2.H2ConnectionFactory
-import io.r2dbc.h2.H2ConnectionOption
+import io.r2dbc.spi.ConnectionFactories
+import io.r2dbc.spi.ConnectionFactory
+import io.r2dbc.spi.ConnectionFactoryOptions
+import io.r2dbc.spi.Option
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.reactive.asFlow
-import kotlinx.coroutines.reactive.awaitSingle
+import kotlinx.coroutines.reactive.awaitFirstOrNull
 import kotlinx.coroutines.reactive.awaitSingleOrNull
 import kotlinx.coroutines.runBlocking
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.jsonArray
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.json.*
+import org.bouncycastle.util.encoders.Hex
+import org.springframework.r2dbc.core.DatabaseClient
+import org.springframework.r2dbc.core.await
+import org.springframework.r2dbc.core.awaitSingleOrNull
+import org.springframework.security.crypto.argon2.Argon2PasswordEncoder
 import java.io.File
+import java.security.SecureRandom
+import java.time.Duration
 import java.util.*
 import kotlin.coroutines.CoroutineContext
-import kotlin.math.roundToInt
+import kotlin.time.ExperimentalTime
+import kotlin.time.measureTimedValue
+import kotlin.time.milliseconds
+import org.springframework.r2dbc.core.bind as bindNullable
+
+import java.util.UUID as JUUID
+import dev.brella.kornea.blaseball.base.common.UUID as KUUID
 
 
 class TheBlasement(val json: Json, val httpClient: HttpClient, val blaseballApi: BlaseballApi, val chroniclerApi: ChroniclerApi) : CoroutineScope {
+    companion object {
+        const val COOKIE_NAME = "connect.sid"
+    }
+
     override val coroutineContext: CoroutineContext = Dispatchers.Default
 
+    val random = SecureRandom.getInstanceStrong()
+    val passwords = Argon2PasswordEncoder()
+
     val liveData = LiveData(blaseballApi, chroniclerApi, this)
-    val globalFeed = BlaseballFeed.Global(this, runBlocking { dateTimeRangeForSeason(0) }) //DateTime.now().utc .. null)
+//    val globalFeed = BlaseballFeed.Global(this, range = runBlocking { dateTimeRangeForSeason(0) })
 
-    val globalEventFeed = BlasementEventFeed(globalFeed, liveData, this)
+//    val globalEventFeed = BlasementEventFeed(globalFeed.flow, this)
 
-    val fans: MutableList<BlasementHostFan> = ArrayList()
+    val fans: MutableMap<KUUID, BlasementHostFan> = HashMap()
     //2021-03-01T16:00:13.446802Z
 
-    val trace = globalFeed.flow.onEach { event ->
-        println("[${event.event.created}] TRACE: $event")
-    }.launchIn(this)
+//    val trace = globalFeed.flow.onEach { event ->
+//        println("[${event.event.created}] TRACE: $event")
+//    }.launchIn(this)
 
     suspend fun dateTimeRangeForSeason(season: Int): TimeRange {
         if (liveData.date.let { it == null || it.season == season }) {
@@ -109,85 +132,156 @@ class TheBlasement(val json: Json, val httpClient: HttpClient, val blaseballApi:
 //
 //    var client: DatabaseClient = DatabaseClient.create(connectionFactory)
 
-    val connectionFactory = H2ConnectionFactory(
-        H2ConnectionConfiguration.builder()
-            .file("./blasement")
-            .property(H2ConnectionOption.DB_CLOSE_DELAY, "-1")
-            .property(H2ConnectionOption.AUTO_SERVER, "true")
-            .build()
+    val configJson: JsonObject? = File("blasement.json").takeIf(File::exists)?.readText()?.let(Json::decodeFromString)
+    val r2dbcConfig: JsonObject = configJson?.getJsonObjectOrNull("r2dbc") ?: File("r2dbc.json").readText().let(Json::decodeFromString)
+
+    val connectionFactory: ConnectionFactory = ConnectionFactories.get(
+        r2dbcConfig.run {
+            val builder = getStringOrNull("url")?.let { ConnectionFactoryOptions.parse(it).mutate() }
+                          ?: ConnectionFactoryOptions.builder().option(ConnectionFactoryOptions.DRIVER, "pool").option(ConnectionFactoryOptions.PROTOCOL, "postgresql")
+
+            getStringOrNull("connectTimeout")
+                ?.let { builder.option(ConnectionFactoryOptions.CONNECT_TIMEOUT, Duration.parse(it)) }
+
+            getStringOrNull("database")
+                ?.let { builder.option(ConnectionFactoryOptions.DATABASE, it) }
+
+            getStringOrNull("driver")
+                ?.let { builder.option(ConnectionFactoryOptions.DRIVER, it) }
+
+            getStringOrNull("host")
+                ?.let { builder.option(ConnectionFactoryOptions.HOST, it) }
+
+            getStringOrNull("password")
+                ?.let { builder.option(ConnectionFactoryOptions.PASSWORD, it) }
+
+            getStringOrNull("port")?.toIntOrNull()
+                ?.let { builder.option(ConnectionFactoryOptions.PORT, it) }
+
+            getStringOrNull("protocol")
+                ?.let { builder.option(ConnectionFactoryOptions.PROTOCOL, it) }
+
+            getStringOrNull("ssl")?.toBoolean()
+                ?.let { builder.option(ConnectionFactoryOptions.SSL, it) }
+
+            getStringOrNull("user")
+                ?.let { builder.option(ConnectionFactoryOptions.USER, it) }
+
+            getJsonObjectOrNull("options")?.forEach { (key, value) ->
+                val value = value as? JsonPrimitive ?: return@forEach
+                value.longOrNull?.let { builder.option(Option.valueOf(key), it) }
+                ?: value.doubleOrNull?.let { builder.option(Option.valueOf(key), it) }
+                ?: value.booleanOrNull?.let { builder.option(Option.valueOf(key), it) }
+                ?: value.contentOrNull?.let { builder.option(Option.valueOf(key), it) }
+            }
+
+            builder.build()
+        }
     )
 
+    val client = DatabaseClient.create(connectionFactory)
+
+
+//    val connectionFactory = H2ConnectionFactory(
+//        H2ConnectionConfiguration.builder()
+//            .file("./blasement")
+//            .property(H2ConnectionOption.DB_CLOSE_DELAY, "-1")
+//            .property(H2ConnectionOption.AUTO_SERVER, "true")
+//            .build()
+//    )
+
     val blasementInitialisationJob = launch {
-        val connection = connectionFactory.create().awaitSingle()
 
         try {
-            println("Opened connection: $connection")
+            client.sql("CREATE TABLE IF NOT EXISTS fans (fan_id uuid NOT NULL, email VARCHAR(128), apple_id VARCHAR(128), google_id VARCHAR(128), facebook_id VARCHAR(128), name VARCHAR(128), password VARCHAR(128), coins BIGINT NOT NULL DEFAULT 250, last_active VARCHAR(128) NOT NULL, created VARCHAR(128) NOT NULL, login_streak INT NOT NULL DEFAULT 0, idol uuid, favourite_team uuid, has_unlocked_shop BOOLEAN NOT NULL DEFAULT FALSE, has_unlocked_elections BOOLEAN NOT NULL DEFAULT FALSE, peanuts_eaten INT NOT NULL DEFAULT 0, squirrels INT NOT NULL DEFAULT 0, light_mode BOOLEAN NOT NULL DEFAULT false, inventory_space INT NOT NULL DEFAULT 8, spread VARCHAR(128) NOT NULL DEFAULT '', coffee INT, fav_number INT, read_only BOOLEAN NOT NULL DEFAULT false);")
+                .await()
 
-            connection.createStatement("CREATE TABLE IF NOT EXISTS fans (fan_id VARCHAR(64) NOT NULL, fan_name VARCHAR(128) NOT NULL, coins BIGINT NOT NULL DEFAULT 250, idol VARCHAR(64), favourite_team VARCHAR(64) NOT NULL, has_unlocked_shop BOOLEAN NOT NULL DEFAULT FALSE, has_unlocked_elections BOOLEAN NOT NULL DEFAULT FALSE, inventory_space INT NOT NULL DEFAULT 8);")
-                .execute()
-                .awaitSingle()
-                .rowsUpdated
-                .awaitSingle()
+            client.sql("CREATE TABLE IF NOT EXISTS items (id BIGSERIAL PRIMARY KEY, fan_id uuid NOT NULL, item_name VARCHAR(64) NOT NULL, quantity INT NOT NULL DEFAULT 0);")
+                .await()
 
-            connection.createStatement("CREATE TABLE IF NOT EXISTS items (id IDENTITY PRIMARY KEY, fan_id VARCHAR(64) NOT NULL, item_name VARCHAR(64) NOT NULL, quantity INT NOT NULL DEFAULT 0);")
-                .execute()
-                .awaitSingleOrNull()
+            client.sql("CREATE TABLE IF NOT EXISTS bets (id BIGSERIAL PRIMARY KEY, fan_id uuid NOT NULL, game_id uuid NOT NULL, team_id uuid NOT NULL, amount INT NOT NULL);")
+                .await()
 
-            connection.createStatement("CREATE TABLE IF NOT EXISTS bets (id IDENTITY PRIMARY KEY, fan_id VARCHAR(64) NOT NULL, game_id VARCHAR(64) NOT NULL, team_id VARCHAR(64) NOT NULL, amount INT NOT NULL);")
-                .execute()
-                .awaitSingleOrNull()
+            client.sql("CREATE TABLE IF NOT EXISTS trackers (fan_id uuid NOT NULL, begs INT NOT NULL DEFAULT 0, bets INT NOT NULL DEFAULT 0, votes_cast INT NOT NULL DEFAULT 0, snacks_bought INT NOT NULL DEFAULT 0, snack_upgrades INT NOT NULL DEFAULT 0);")
+                .await()
 
-            connection.createStatement("SELECT fan_id, fan_name, coins, idol, favourite_team, has_unlocked_shop, has_unlocked_elections, inventory_space FROM fans;")
-                .execute()
-                .awaitSingle()
-                .map { row, _ ->
+            client.sql("CREATE TABLE IF NOT EXISTS toasts (id BIGSERIAL PRIMARY KEY, fan_id uuid NOT NULL, toast VARCHAR (256) NOT NULL, timestamp BIGINT NOT NULL)")
+                .await()
+
+            client.sql("SELECT fan_id, email, apple_id, google_id, facebook_id, name, password, coins, last_active, created, login_streak, idol, favourite_team, has_unlocked_shop, has_unlocked_elections, peanuts_eaten, squirrels, light_mode, inventory_space, spread, coffee, fav_number FROM fans;")
+                .map { row ->
                     BlasementFanDatabasePayload(
-                        FanID(row["fan_id"] as String),
-                        row["fan_name"] as String,
+                        FanID((row["fan_id"] as? JUUID)?.kornea ?: (row["fan_id"] as? String)?.uuidOrNull() ?: throw IllegalArgumentException("No fan_id found for $row")),
+                        row["email"] as? String,
+                        row["apple_id"] as? String,
+                        row["google_id"] as? String,
+                        row["facebook_id"] as? String,
+                        row["name"] as? String,
+                        row["password"] as? String,
                         row["coins"] as Long,
-                        (row["idol"] as? String)?.let(::PlayerID),
-                        TeamID(row["favourite_team"] as String),
+                        BLASEBALL_TIME_PATTERN.parse(row["last_active"] as String),
+                        BLASEBALL_TIME_PATTERN.parse(row["created"] as String),
+                        row["login_streak"] as Int,
+                        (row["idol"] as? JUUID)?.kornea?.let(::PlayerID),
+                        (row["favourite_team"] as? JUUID)?.kornea?.let(::TeamID),
                         row["has_unlocked_shop"] as Boolean,
                         row["has_unlocked_elections"] as Boolean,
-                        row["inventory_space"] as Int
+                        row["peanuts_eaten"] as Int,
+                        row["squirrels"] as Int,
+                        row["light_mode"] as Boolean,
+                        row["inventory_space"] as Int,
+                        (row["spread"] as? String)?.split(',')?.map(String::trim)?.mapNotNull(String::toIntOrNull) ?: emptyList(),
+                        row["coffee"] as? Int,
+                        row["fav_number"] as? Int
                     )
-                }.asFlow()
+                }.all()
+                .asFlow()
                 .collect { databasePayload ->
+                    val fanID = databasePayload.fanID.uuid
+
                     val items =
-                        connection.createStatement("SELECT item_name, quantity FROM items WHERE fan_id = $1")
-                            .bind("$1", databasePayload.fanID.id)
-                            .execute()
-                            .awaitSingle()
+                        client.sql("SELECT item_name, quantity FROM items WHERE fan_id = $1")
+                            .bindAs("$1", fanID)
                             .map { row, _ ->
                                 val name = row["item_name"] as String
-                                val item = EnumBlaseballItem.values().firstOrNull { it.name == name }
+                                val item = EnumBlaseballSnack.values().firstOrNull { it.name == name }
                                            ?: return@map null
 
-                                Pair(item, row["quantity"] as Int)
-                            }.collectList().awaitSingle()
+                                Pair(item, (row["quantity"] as Number).toInt())
+                            }.all().collectList().awaitFirstOrNull() ?: emptyList()
 
 
                     val bets =
-                        connection.createStatement("SELECT game_id, team_id, amount FROM bets WHERE fan_id = $1")
-                            .bind("$1", databasePayload.fanID.id)
-                            .execute()
-                            .awaitSingle()
+                        client.sql("SELECT game_id, team_id, amount FROM bets WHERE fan_id = $1")
+                            .bindAs("$1", fanID)
                             .map { row, _ ->
-                                Triple(
-                                    row["game_id"] as String,
-                                    row["team_id"] as String,
-                                    row["amount"] as Int
+                                (row["game_id"] as? JUUID)?.kornea?.let { gameID ->
+                                    (row["team_id"] as? JUUID)?.kornea?.let { teamID ->
+                                        (row["amount"] as? Number)?.toInt()?.let { amount ->
+                                            Triple(gameID, teamID, amount)
+                                        }
+                                    }
+                                }
+                            }.all().collectList().awaitFirstOrNull()?.filterNotNull() ?: emptyList()
+
+                    val trackers =
+                        client.sql("SELECT begs, bets, votes_cast, snacks_bought, snack_upgrades FROM trackers WHERE fan_id = $1")
+                            .bindAs("$1", fanID)
+                            .map { row, _ ->
+                                BlaseballFanTrackers(
+                                    row["begs"] as Int,
+                                    row["bets"] as Int,
+                                    row["votes_cast"] as Int,
+                                    row["snacks_bought"] as Int,
+                                    row["snack_upgrades"] as Int
                                 )
-                            }.collectList().awaitSingle()
+                            }.awaitSingleOrNull() ?: BlaseballFanTrackers()
 
-                    fans.add(BlasementHostFan(databasePayload, this@TheBlasement, items, bets))
-
+                    fans[fanID] = BlasementHostFan(databasePayload, this@TheBlasement, items, bets, trackers)
                 }
         } catch (th: Throwable) {
             th.printStackTrace()
             throw th
-        } finally {
-            connection.close().awaitSingleOrNull()
         }
     }
 
@@ -196,15 +290,27 @@ class TheBlasement(val json: Json, val httpClient: HttpClient, val blaseballApi:
     private val gamesToday = ValueCache { date: BlaseballDate -> blaseballApi.getGamesByDate(date.season, date.day).get() }
     private val gamesTomorrow = ValueCache { date: BlaseballDate -> blaseballApi.getGamesByDate(date.season, date.day + 1).get() }
 
-    val key = File(".secretkey").let { file ->
-        if (file.exists()) Keys.hmacShaKeyFor(file.readBytes())
+    val privateKey = File("private.key").let { file ->
+        if (file.exists()) RSAPrivateKey(file.readBytes())
         else {
-            val key = Keys.secretKeyFor(SignatureAlgorithm.HS512)
-            file.writeBytes(key.encoded)
-            key
+            val key = Keys.keyPairFor(SignatureAlgorithm.RS512)
+            file.writeBytes(key.private.encoded)
+
+            File("public.key").writeBytes(key.public.encoded)
+
+            File("public.auth").writeText(Hex.toHexString(key.public.encoded))
+
+            key.private
         }
     }
-    val parser = Jwts.parserBuilder().setSigningKey(key).build()
+    val parser = Jwts.parserBuilder().requireIssuer("3de20b85-df54-4894-8d23-057796cd1a3b").setSigningKey(privateKey).build()
+
+    inline fun jwt(builder: JwtBuilder.() -> Unit) =
+        Jwts.builder()
+            .setIssuer("3de20b85-df54-4894-8d23-057796cd1a3b")
+            .signWith(privateKey)
+            .apply(builder)
+            .compact()
 
     suspend fun today(): BlaseballDate =
         liveData.date ?: blaseballApi.getSimulationData().get().run { BlaseballDate(season, day) }
@@ -215,280 +321,154 @@ class TheBlasement(val json: Json, val httpClient: HttpClient, val blaseballApi:
     suspend fun gamesTomorrow(): List<BlaseballDatabaseGame> =
         gamesTomorrow.get(today())
 
-    suspend fun newFan(name: String, favouriteTeam: TeamID): Pair<String, BlasementHostFan> {
-        val fanID = UUID.randomUUID().toString()
-        val authToken = Jwts.builder()
-            .setSubject(name)
-            .setId(fanID)
-            .signWith(key)
-            .compact()
+    suspend fun newFan(fanID: JUUID, name: String?, favouriteTeam: TeamID) = newFan(fanID.kornea, name, favouriteTeam)
+    suspend fun newFan(fanID: KUUID, name: String?, favouriteTeam: TeamID): Pair<String, BlasementHostFan> {
+        val authToken = jwt {
+            if (name != null) setSubject(name)
+            setId(fanID.toString())
+        }
+
+        val now = DateTime.now().utc
 
         val fan = BlasementHostFan(
-            this,
-            FanID(fanID),
-            name,
+            blasement = this,
+            id = FanID(fanID),
+            name = name,
+            email = "$name@example.com",
             coins = 250,
             favouriteTeam = favouriteTeam,
+
+            lastActive = now,
+            created = now,
+
+            loginStreak = 0
         )
 
         fan.apply {
-            setItemQuantity(EnumBlaseballItem.VOTES) { 1 }
-            setItemQuantity(EnumBlaseballItem.SNAKE_OIL) { 1 }
-            setItemQuantity(EnumBlaseballItem.PEANUTS) { 10 }
+            setItemQuantity(EnumBlaseballSnack.VOTES) { 1 }
+            setItemQuantity(EnumBlaseballSnack.SNAKE_OIL) { 1 }
+            setItemQuantity(EnumBlaseballSnack.PEANUTS) { 10 }
         }
 
-        val connection = connectionFactory
-            .create()
-            .awaitSingle()
-
         try {
-            connection.createStatement("INSERT INTO fans (FAN_ID, FAN_NAME, COINS, IDOL, FAVOURITE_TEAM, HAS_UNLOCKED_SHOP, HAS_UNLOCKED_ELECTIONS) VALUES ( $1, $2, $3, $4, $5, $6, $7 )")
-                .bind("$1", fan.id.id)
-                .bind("$2", fan.name)
-                .bind("$3", fan.coins)
-                .bindNullable("$4", fan.idol?.id)
-                .bind("$5", fan.favouriteTeam.id)
-                .bind("$6", fan.hasUnlockedShop)
-                .bind("$7", fan.hasUnlockedElections)
-                .execute()
-                .awaitSingle()
+            client.sql("INSERT INTO fans (fan_id, email, apple_id, google_id, facebook_id, name, password, last_active, created, coins, idol, favourite_team, has_unlocked_shop, has_unlocked_elections, coffee, fav_number) VALUES ( $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16 )")
+                .bindAs("$1", fan.id)
+                .bindNullable("$2", fan.email)
+                .bindNullable("$3", fan.appleId)
+                .bindNullable("$4", fan.googleId)
+                .bindNullable("$5", fan.facebookId)
+                .bindNullable("$6", fan.name)
+                .bindNullable("$7", fan.password)
+                .bind("$8", BLASEBALL_TIME_PATTERN.format(fan.lastActive))
+                .bind("$9", BLASEBALL_TIME_PATTERN.format(fan.created))
+                .bind("$10", fan.coins)
+                .bindAsNullable("$11", fan.idol)
+                .bindAsNullable("$12", fan.favouriteTeam)
+                .bind("$13", fan.hasUnlockedShop)
+                .bind("$14", fan.hasUnlockedElections)
+                .bindNullable<Int>("$15", null)
+                .bindNullable<Int>("$16", null)
+                .await()
         } catch (th: Throwable) {
             th.printStackTrace()
             throw th
-        } finally {
-            connection.close()
         }
 
-        fans.add(fan)
+        fans[fanID] = fan
         return Pair(authToken, fan)
     }
 
-    val bettingRewards = globalEventFeed.onGameEnd.onEach { event ->
-        val gameID = event.gameStep.id
-        val winner = event.winner
+    suspend fun newFanWithEmail(fanID: JUUID, email: String, password: String) = newFanWithEmail(fanID.kornea, email, password)
+    suspend fun newFanWithEmail(fanID: KUUID, email: String, password: String): Pair<String, BlasementHostFan> {
+        val authToken = jwt {
+            setSubject(email)
+            setId(fanID.toString())
+        }
 
-        fans.forEach { fan ->
-            val bet = fan.gameCompleted(gameID) ?: return@forEach
+        val now = DateTime.now().utc
 
-            if (bet.team == winner) {
-                val returns = when (bet.team) {
-                    event.gameStep.homeTeam -> BettingPayouts.currentSeason(bet.bet, event.gameStep.homeOdds)
-                    event.gameStep.awayTeam -> BettingPayouts.currentSeason(bet.bet, event.gameStep.awayOdds)
-                    else -> bet.bet
-                }
+        val fan = BlasementHostFan(
+            blasement = this,
+            id = FanID(fanID),
+            email = email,
+            password = password,
+            coins = 250,
+            favouriteTeam = null,
 
-                fan.setCoins { it + returns }
-                fan.fanEvents.emit(ServerEvent.FanActionResponse.WonBet(gameID, bet.team, bet.bet, returns))
+            lastActive = now,
+            created = now,
+
+            loginStreak = 0
+        )
+
+        fan.apply {
+            setItemQuantity(EnumBlaseballSnack.VOTES) { 1 }
+            setItemQuantity(EnumBlaseballSnack.SNAKE_OIL) { 1 }
+            setItemQuantity(EnumBlaseballSnack.PEANUTS) { 10 }
+
+            setItemQuantity(EnumBlaseballSnack.FLUTES) { 10 }
+        }
+
+        try {
+            client.sql("INSERT INTO fans (fan_id, email, apple_id, google_id, facebook_id, name, password, last_active, created, coins, idol, favourite_team, has_unlocked_shop, has_unlocked_elections, coffee, fav_number) VALUES ( $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16 )")
+                .bindAs("$1", fanID)
+                .bindNullable("$2", fan.email)
+                .bindNullable("$3", fan.appleId)
+                .bindNullable("$4", fan.googleId)
+                .bindNullable("$5", fan.facebookId)
+                .bindNullable("$6", fan.name)
+                .bindNullable("$7", fan.password)
+                .bind("$8", BLASEBALL_TIME_PATTERN.format(fan.lastActive))
+                .bind("$9", BLASEBALL_TIME_PATTERN.format(fan.created))
+                .bind("$10", fan.coins)
+                .bindAsNullable("$11", fan.idol)
+                .bindNullable<JUUID>("$12", null)
+                .bind("$13", fan.hasUnlockedShop)
+                .bind("$14", fan.hasUnlockedElections)
+                .bindNullable<Int>("$15", null)
+                .bindNullable<Int>("$16", null)
+                .await()
+        } catch (th: Throwable) {
+            th.printStackTrace()
+            throw th
+        }
+
+        fans[fanID] = fan
+        return Pair(authToken, fan)
+    }
+
+    @OptIn(ExperimentalTime::class)
+    suspend fun login(email: String, password: String): Pair<String, BlasementHostFan>? {
+        val ensureAtLeast = kotlin.time.Duration.milliseconds(100)
+
+        val (result, taken) = measureTimedValue {
+            val (fanID, fanPassword) =
+                client.sql("SELECT fan_id, password FROM fans WHERE email = $1")
+                    .bind("$1", email)
+                    .map { row ->
+                        (row["fan_id"] as? JUUID)?.kornea?.let { fanID ->
+                            (row["password"] as? String)?.let { passwd ->
+                                Pair(fanID, passwd)
+                            }
+                        }
+                    }.awaitSingleOrNull() ?: return@measureTimedValue null
+
+            if (passwords.matches(password, fanPassword)) {
+                fans[fanID]
             } else {
-                fan.fanEvents.emit(ServerEvent.FanActionResponse.LostBet(gameID, bet.team, bet.bet))
+                null
             }
         }
-    }.launchIn(this)
 
-    val popcornRewards = globalEventFeed.onGameEnd.onEach { event ->
-        val winner = event.winner
+        delay(ensureAtLeast - taken)
 
-        fans.forEach { fan ->
-            if (fan.favouriteTeam == winner) {
-                val popcornCount = fan.inventory[EnumBlaseballItem.POPCORN]?.takeIf { it > 0 } ?: return@forEach
-                val payoutRate = EnumBlaseballItem.POPCORN[popcornCount - 1]?.payout ?: return@forEach
-                val coinPayout = (payoutRate * fan.payoutRate).roundToInt()
+        if (result == null) return null
 
-                fan.setCoins { it + coinPayout }
-                fan.fanEvents.emit(ServerEvent.FanActionResponse.GainedMoney(coinPayout, EnumGainedMoneyReason.POPCORN))
-            }
+        val authToken = jwt {
+            setSubject(email)
+            setId(result.id.id)
         }
-    }.launchIn(this)
 
-    val stalePopcornRewards = globalEventFeed.onGameEnd.onEach { event ->
-        val loser = event.gameStep.homeTeam.takeUnless { it == event.winner } ?: event.gameStep.awayTeam
-
-        fans.forEach { fan ->
-            if (fan.favouriteTeam == loser) {
-                val snackCount = fan.inventory[EnumBlaseballItem.STALE_POPCORN]?.takeIf { it > 0 } ?: return@forEach
-                val payoutRate = EnumBlaseballItem.STALE_POPCORN[snackCount - 1]?.payout ?: return@forEach
-                val coinPayout = (payoutRate * fan.payoutRate).roundToInt()
-
-                fan.setCoins { it + coinPayout }
-                fan.fanEvents.emit(ServerEvent.FanActionResponse.GainedMoney(coinPayout, EnumGainedMoneyReason.STALE_POPCORN))
-            }
-        }
-    }.launchIn(this)
-
-//    val breakfastRewards =
-    /** Earn coins every time your Team shames another Team. */
-    val taffyRewards = globalEventFeed.onTeamShames.onEach { event ->
-        val team = event.team
-
-        fans.forEach { fan ->
-            if (fan.favouriteTeam == team) {
-                val snackCount = fan.inventory[EnumBlaseballItem.TAFFY]?.takeIf { it > 0 } ?: return@forEach
-                val payoutRate = EnumBlaseballItem.TAFFY[snackCount - 1]?.payout ?: return@forEach
-                val coinPayout = (payoutRate * fan.payoutRate).roundToInt()
-
-                fan.setCoins { it + coinPayout }
-                fan.fanEvents.emit(ServerEvent.FanActionResponse.GainedMoney(coinPayout, EnumGainedMoneyReason.TAFFY))
-            }
-        }
-    }.launchIn(this)
-
-    /** Earn coins every time your Team gets shamed. */
-    val lemonadeRewards = globalEventFeed.onTeamShamed.onEach { event ->
-        val team = event.team
-
-        fans.forEach { fan ->
-            if (fan.favouriteTeam == team) {
-                val snackCount = fan.inventory[EnumBlaseballItem.LEMONADE]?.takeIf { it > 0 } ?: return@forEach
-                val payoutRate = EnumBlaseballItem.LEMONADE[snackCount - 1]?.payout ?: return@forEach
-                val coinPayout = (payoutRate * fan.payoutRate).roundToInt()
-
-                fan.setCoins { it + coinPayout }
-                fan.fanEvents.emit(ServerEvent.FanActionResponse.GainedMoney(coinPayout, EnumGainedMoneyReason.LEMONADE))
-            }
-        }
-    }.launchIn(this)
-
-    /** Crisp. Earn 3 coins when your Idol strikes a batter out. */
-    val chipRewards = globalEventFeed.onStrikeout.onEach { event ->
-        val pitcher = event.gameStep.homePitcher ?: event.gameStep.awayPitcher!!
-
-        fans.forEach { fan ->
-            if (fan.idol == pitcher) {
-                val snackCount = fan.inventory[EnumBlaseballItem.CHIPS]?.takeIf { it > 0 } ?: return@forEach
-                val payoutRate = EnumBlaseballItem.CHIPS[snackCount - 1]?.payout ?: return@forEach
-                val coinPayout = (payoutRate * fan.payoutRate).roundToInt()
-
-                fan.setCoins { it + coinPayout }
-                fan.fanEvents.emit(ServerEvent.FanActionResponse.GainedMoney(coinPayout, EnumGainedMoneyReason.CHIPS))
-            }
-        }
-    }.launchIn(this)
-
-    /** Medium Rare. Earn coins when your Idol pitches a shutout. */
-    val burgerRewards = globalEventFeed.onShutout.onEach { event ->
-        val pitcher = event.gameStep.homePitcher ?: event.gameStep.awayPitcher!!
-
-        fans.forEach { fan ->
-            if (fan.idol == pitcher) {
-                val snackCount = fan.inventory[EnumBlaseballItem.BURGER]?.takeIf { it > 0 } ?: return@forEach
-                val payoutRate = EnumBlaseballItem.BURGER[snackCount - 1]?.payout ?: return@forEach
-                val coinPayout = (payoutRate * fan.payoutRate).roundToInt()
-
-                fan.setCoins { it + coinPayout }
-                fan.fanEvents.emit(ServerEvent.FanActionResponse.GainedMoney(coinPayout, EnumGainedMoneyReason.BURGER))
-            }
-        }
-    }.launchIn(this)
-
-    /** Uh oh. Earn coins when a batter hits a home run off of your Idol's pitch. */
-    val meatballRewards = globalEventFeed.onHomeRun.onEach { event ->
-        val pitcher = event.gameStep.homePitcher ?: event.gameStep.awayPitcher!!
-
-        fans.forEach { fan ->
-            if (fan.idol == pitcher) {
-                val snackCount = fan.inventory[EnumBlaseballItem.MEATBALL]?.takeIf { it > 0 } ?: return@forEach
-                val payoutRate = EnumBlaseballItem.MEATBALL[snackCount - 1]?.payout ?: return@forEach
-                val coinPayout = (payoutRate * fan.payoutRate).roundToInt()
-
-                fan.setCoins { it + coinPayout }
-                fan.fanEvents.emit(ServerEvent.FanActionResponse.GainedMoney(coinPayout, EnumGainedMoneyReason.MEATBALL))
-            }
-        }
-    }.launchIn(this)
-
-    /** Hot Dog! Earn coins when your Idol hits a home run. */
-    val hotDogRewards = globalEventFeed.onHomeRun.onEach { event ->
-        val batter = event.gameStep.homeBatter ?: event.gameStep.awayBatter!!
-
-        fans.forEach { fan ->
-            if (fan.idol == batter) {
-                val snackCount = fan.inventory[EnumBlaseballItem.HOT_DOG]?.takeIf { it > 0 } ?: return@forEach
-                val payoutRate = EnumBlaseballItem.HOT_DOG[snackCount - 1]?.payout ?: return@forEach
-                val coinPayout = (payoutRate * fan.payoutRate).roundToInt()
-
-                fan.setCoins { it + coinPayout }
-                fan.fanEvents.emit(ServerEvent.FanActionResponse.GainedMoney(coinPayout, EnumGainedMoneyReason.HOT_DOG))
-            }
-        }
-    }.launchIn(this)
-
-    /** Ptooie. Earn 5 coins when your Idol gets a hit. */
-    val sunflowerSeedRewards = globalEventFeed.onHit.onEach { event ->
-        val batter = event.gameStep.homeBatter ?: event.gameStep.awayBatter!!
-
-        fans.forEach { fan ->
-            if (fan.idol == batter) {
-                val snackCount = fan.inventory[EnumBlaseballItem.SUNFLOWER_SEEDS]?.takeIf { it > 0 } ?: return@forEach
-                val payoutRate = EnumBlaseballItem.SUNFLOWER_SEEDS[snackCount - 1]?.payout ?: return@forEach
-                val coinPayout = (payoutRate * fan.payoutRate).roundToInt()
-
-                fan.setCoins { it + coinPayout }
-                fan.fanEvents.emit(ServerEvent.FanActionResponse.GainedMoney(coinPayout, EnumGainedMoneyReason.SUNFLOWER_SEEDS))
-            }
-        }
-    }.launchIn(this)
-
-    /** Ptooie. Earn coins every time your Idol steals a base. */
-    val pickleRewards = globalEventFeed.onStolenBase.onEach { event ->
-        val batter = event.event.playerTags.firstOrNull() ?: return@onEach
-
-        fans.forEach { fan ->
-            if (fan.idol == batter) {
-                val snackCount = fan.inventory[EnumBlaseballItem.PICKLES]?.takeIf { it > 0 } ?: return@forEach
-                val payoutRate = EnumBlaseballItem.PICKLES[snackCount - 1]?.payout ?: return@forEach
-                val coinPayout = (payoutRate * fan.payoutRate).roundToInt()
-
-                fan.setCoins { it + coinPayout }
-                fan.fanEvents.emit(ServerEvent.FanActionResponse.GainedMoney(coinPayout, EnumGainedMoneyReason.PICKLES))
-            }
-        }
-    }.launchIn(this)
-
-    /** Ptooie. Earn coins for every baserunner swept away by Flooding weather across the league. */
-    val slushieRewards = globalEventFeed.onFlood.onEach { event ->
-        fans.forEach { fan ->
-            val snackCount = fan.inventory[EnumBlaseballItem.SLUSHIE]?.takeIf { it > 0 } ?: return@forEach
-            val payoutRate = EnumBlaseballItem.SLUSHIE[snackCount - 1]?.payout ?: return@forEach
-            val coinPayout = ((payoutRate * event.playersFlooded.size) * fan.payoutRate).roundToInt()
-
-            fan.setCoins { it + coinPayout }
-            fan.fanEvents.emit(ServerEvent.FanActionResponse.GainedMoney(coinPayout, EnumGainedMoneyReason.SLUSHIE))
-        }
-    }.launchIn(this)
-
-    /** Refreshing. Earn coins every time a Player is incinerated. */
-    val sundaeRewards = globalEventFeed.onIncineration.onEach { event ->
-        fans.forEach { fan ->
-            val snackCount = fan.inventory[EnumBlaseballItem.SUNDAE]?.takeIf { it > 0 } ?: return@forEach
-            val payoutRate = EnumBlaseballItem.SUNDAE[snackCount - 1]?.payout ?: return@forEach
-            val coinPayout = (payoutRate * fan.payoutRate).roundToInt()
-
-            fan.setCoins { it + coinPayout }
-            fan.fanEvents.emit(ServerEvent.FanActionResponse.GainedMoney(coinPayout, EnumGainedMoneyReason.SUNDAE))
-        }
-    }.launchIn(this)
-
-    /** Earn coins for every time the Black Hole swallows a Win from any Team. */
-    val wetPretzelRewards = globalEventFeed.onBlackHole.onEach { event ->
-        fans.forEach { fan ->
-            val snackCount = fan.inventory[EnumBlaseballItem.WET_PRETZEL]?.takeIf { it > 0 } ?: return@forEach
-            val payoutRate = EnumBlaseballItem.WET_PRETZEL[snackCount - 1]?.payout ?: return@forEach
-            val coinPayout = (payoutRate * fan.payoutRate).roundToInt()
-
-            fan.setCoins { it + coinPayout }
-            fan.fanEvents.emit(ServerEvent.FanActionResponse.GainedMoney(coinPayout, EnumGainedMoneyReason.WET_PRETZEL))
-        }
-    }.launchIn(this)
-
-    /** Earn coins for every time Sun 2 sets a Win on a Team. */
-    val doughnutRewards = globalEventFeed.onSun2.onEach { event ->
-        fans.forEach { fan ->
-            val snackCount = fan.inventory[EnumBlaseballItem.DOUGHNUT]?.takeIf { it > 0 } ?: return@forEach
-            val payoutRate = EnumBlaseballItem.DOUGHNUT[snackCount - 1]?.payout ?: return@forEach
-            val coinPayout = (payoutRate * fan.payoutRate).roundToInt()
-
-            fan.setCoins { it + coinPayout }
-            fan.fanEvents.emit(ServerEvent.FanActionResponse.GainedMoney(coinPayout, EnumGainedMoneyReason.DOUGHNUT))
-        }
-    }.launchIn(this)
+        return authToken to result
+    }
 }

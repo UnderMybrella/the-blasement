@@ -7,7 +7,7 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlin.coroutines.CoroutineContext
 
-class BlasementEventFeed(val feed: BlaseballFeed, val liveData: LiveData, scope: CoroutineScope, context: CoroutineContext = scope.coroutineContext) {
+class BlasementEventFeed(val flow: SharedFlow<BlaseballFeedEventWithContext>, scope: CoroutineScope, context: CoroutineContext = scope.coroutineContext) {
     private val _onGameEnd: MutableSharedFlow<BlaseballGameEndEvent> = MutableSharedFlow()
     private val _onShutout: MutableSharedFlow<BlaseballShutoutEvent> = MutableSharedFlow()
     private val _onBlackHole: MutableSharedFlow<BlaseballBlackHoleEvent> = MutableSharedFlow()
@@ -22,35 +22,35 @@ class BlasementEventFeed(val feed: BlaseballFeed, val liveData: LiveData, scope:
     private val _onFlood: MutableSharedFlow<BlaseballFloodingEvent> = MutableSharedFlow()
 
     private val collector = scope.launch(context) {
-        feed.flow.collect { event ->
-            val (event, gameStep) = event
-            when (event) {
+        flow.collect { event ->
+            val (subEvent, gameStep) = event
+            when (subEvent) {
                 is BlaseballFeedEvent.GameEndLog -> if (gameStep != null) {
-                    _onGameEnd.emit(BlaseballGameEndEvent(event, gameStep, event.metadata.winner))
+                    _onGameEnd.emit(BlaseballGameEndEvent(subEvent, gameStep, subEvent.metadata.winner))
 
                     //TODO: Triple check if this is valid shutout logic
                     if (gameStep.homePitcher != null && gameStep.awayScore == 0.0) {
-                        _onShutout.emit(BlaseballShutoutEvent(event, gameStep, gameStep.homePitcher!!, gameStep.homePitcherName!!))
+                        _onShutout.emit(BlaseballShutoutEvent(subEvent, gameStep, gameStep.homePitcher!!, gameStep.homePitcherName!!))
                     } else if (gameStep.awayPitcher != null && gameStep.homeScore == 0.0) {
-                        _onShutout.emit(BlaseballShutoutEvent(event, gameStep, gameStep.awayPitcher!!, gameStep.awayPitcherName!!))
+                        _onShutout.emit(BlaseballShutoutEvent(subEvent, gameStep, gameStep.awayPitcher!!, gameStep.awayPitcherName!!))
                     }
-                }
-                is BlaseballFeedEvent.BlackHoleInGame -> if (gameStep != null) _onBlackHole.emit(BlaseballBlackHoleEvent(event, gameStep))
+                } else println("Missing gameStep for $subEvent")
+                is BlaseballFeedEvent.BlackHoleInGame -> if (gameStep != null) _onBlackHole.emit(BlaseballBlackHoleEvent(subEvent, gameStep))
                 //Incineration technically has two events, so we should listen to the parent one - that has more information
-                is BlaseballFeedEvent.Incineration -> if (gameStep != null && event.metadata.children != null) _onIncineration.emit(BlaseballIncinerationEvent(event, gameStep))
-                is BlaseballFeedEvent.Strikeout -> if (gameStep != null) _onStrikeout.emit(BlaseballStrikeoutEvent(event, gameStep))
-                is BlaseballFeedEvent.TeamShamed -> _onTeamShamed.emit(BlaseballTeamShamedEvent(event, event.teamTags.first()))
-                is BlaseballFeedEvent.TeamShames -> _onTeamShames.emit(BlaseballTeamShamesEvent(event, event.teamTags.first()))
-                is BlaseballFeedEvent.HomeRun -> if (gameStep != null) _onHomeRun.emit(BlaseballHomeRunEvent(event, gameStep))
+                is BlaseballFeedEvent.Incineration -> if (gameStep != null && subEvent.metadata.children != null) _onIncineration.emit(BlaseballIncinerationEvent(subEvent, gameStep))
+                is BlaseballFeedEvent.Strikeout -> if (gameStep != null) _onStrikeout.emit(BlaseballStrikeoutEvent(subEvent, gameStep))
+                is BlaseballFeedEvent.TeamShamed -> _onTeamShamed.emit(BlaseballTeamShamedEvent(subEvent, subEvent.teamTags.first()))
+                is BlaseballFeedEvent.TeamShames -> _onTeamShames.emit(BlaseballTeamShamesEvent(subEvent, subEvent.teamTags.first()))
+                is BlaseballFeedEvent.HomeRun -> if (gameStep != null) _onHomeRun.emit(BlaseballHomeRunEvent(subEvent, gameStep))
                 is BlaseballFeedEvent.Hit -> {
                     if (gameStep != null) {
-                        if (gameStep.homePitcher != null && gameStep.awayBatter != null) _onHit.emit(BlaseballHitEvent(event, gameStep, gameStep.homePitcher!!, gameStep.homePitcherName, gameStep.awayBatter!!, gameStep.awayBatterName!!))
-                        else if (gameStep.awayPitcher != null && gameStep.homeBatter != null) _onHit.emit(BlaseballHitEvent(event, gameStep, gameStep.awayPitcher!!, gameStep.awayPitcherName!!, gameStep.homeBatter!!, gameStep.homeBatterName!!))
+                        if (gameStep.homePitcher != null && gameStep.awayBatter != null) _onHit.emit(BlaseballHitEvent(subEvent, gameStep, gameStep.homePitcher!!, gameStep.homePitcherName, gameStep.awayBatter!!, gameStep.awayBatterName!!))
+                        else if (gameStep.awayPitcher != null && gameStep.homeBatter != null) _onHit.emit(BlaseballHitEvent(subEvent, gameStep, gameStep.awayPitcher!!, gameStep.awayPitcherName!!, gameStep.homeBatter!!, gameStep.homeBatterName!!))
                     }
                 }
-                is BlaseballFeedEvent.StolenBase -> if (gameStep != null) _onStolenBase.emit(BlaseballStolenBaseEvent(event, gameStep))
-                is BlaseballFeedEvent.Sun2InGame -> if (gameStep != null) _onSun2.emit(BlaseballSun2Event(event, gameStep))
-                is BlaseballFeedEvent.Flooding -> if (gameStep != null) _onFlood.emit(BlaseballFloodingEvent(event, gameStep, gameStep.baseRunners.filterNot(event.playerTags::contains)))
+                is BlaseballFeedEvent.StolenBase -> if (gameStep != null) _onStolenBase.emit(BlaseballStolenBaseEvent(subEvent, gameStep))
+                is BlaseballFeedEvent.Sun2InGame -> if (gameStep != null) _onSun2.emit(BlaseballSun2Event(subEvent, gameStep))
+                is BlaseballFeedEvent.Flooding -> if (gameStep != null) _onFlood.emit(BlaseballFloodingEvent(subEvent, gameStep, gameStep.baseRunners.filterNot(subEvent.playerTags::contains)))
                 else -> {
                 }
             }

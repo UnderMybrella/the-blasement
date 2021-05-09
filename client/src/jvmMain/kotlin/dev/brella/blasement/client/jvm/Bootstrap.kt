@@ -4,7 +4,7 @@ import dev.brella.blasement.common.events.BlasementFan
 import dev.brella.blasement.common.events.ClientEvent
 import dev.brella.blasement.common.events.EnumBegFail
 import dev.brella.kornea.blaseball.BlaseballApi
-import dev.brella.kornea.blaseball.base.common.EnumBlaseballItem
+import dev.brella.kornea.blaseball.base.common.EnumBlaseballSnack
 import dev.brella.kornea.blaseball.chronicler.ChroniclerApi
 import dev.brella.kornea.errors.common.getOrNull
 import dev.brella.ktornea.common.installGranularHttp
@@ -85,7 +85,7 @@ suspend fun main() {
                     } else if (failReason == EnumBegFail.NO_BREAD_CRUMBS) {
                         println("Laying out a sacrifice for the old gods...")
 
-                        val sacrifice = purchase(1, EnumBlaseballItem.BREAD_CRUMBS)
+                        val sacrifice = buySnack(1, EnumBlaseballSnack.BREAD_CRUMBS)
                         if (sacrifice == null) {
                             println("The ritual is complete.")
                         } else {
@@ -137,7 +137,7 @@ suspend fun main() {
                         }
                     }
 
-                    val maxBet = fan.inventory[EnumBlaseballItem.SNAKE_OIL]?.minus(1)?.let(EnumBlaseballItem.SNAKE_OIL::get)?.payout ?: 0
+                    val maxBet = fan.inventory[EnumBlaseballSnack.SNAKE_OIL]?.minus(1)?.let(EnumBlaseballSnack.SNAKE_OIL::get)?.payout ?: 0
                     if (maxBet == 0) {
                         println("Oh, it looks like my max bet is 0 coins... that's gonna be a problem, right?")
 
@@ -145,12 +145,12 @@ suspend fun main() {
                         continue
                     }
 
-                    val coinsNeededToBeEffective = fan.inventory[EnumBlaseballItem.SNAKE_OIL]?.let(EnumBlaseballItem.SNAKE_OIL::get)?.price?.plus((maxBet * 1.1) * (scheduled.size * 1.1))
+                    val coinsNeededToBeEffective = fan.inventory[EnumBlaseballSnack.SNAKE_OIL]?.let(EnumBlaseballSnack.SNAKE_OIL::get)?.price?.plus((maxBet * 1.1) * (scheduled.size * 1.1))
                     if (coinsNeededToBeEffective != null && fan.coins > coinsNeededToBeEffective) {
                         if (fan.hasUnlockedShop) {
                             println("Aha, time to buy some more snake oil, since we have $coinsNeededToBeEffective")
 
-                            val (cost, purchaseResult) = fan.purchase(1, EnumBlaseballItem.SNAKE_OIL)
+                            val (cost, purchaseResult) = fan.buySnack(1, EnumBlaseballSnack.SNAKE_OIL)
 
                             if (purchaseResult == null) {
                                 println("We did it, we upgraded our betting power !!")

@@ -3,8 +3,10 @@ import dev.brella.blasement.BlasementDataSourceWrapper
 import dev.brella.blasement.BlasementLeague
 import dev.brella.blasement.blaseball
 import dev.brella.kornea.blaseball.BlaseballApi
+import dev.brella.kornea.blaseball.base.common.FeedID
 import dev.brella.kornea.blaseball.base.common.GameID
 import dev.brella.kornea.blaseball.chronicler.ChroniclerApi
+import dev.brella.ktornea.common.KorneaHttpResult
 import dev.brella.ktornea.common.installGranularHttp
 import io.ktor.application.*
 import io.ktor.client.*
@@ -13,6 +15,7 @@ import io.ktor.client.features.*
 import io.ktor.client.features.compression.*
 import io.ktor.client.features.json.*
 import io.ktor.client.features.json.serializer.*
+import io.ktor.client.statement.*
 import io.ktor.features.*
 import io.ktor.http.*
 import io.ktor.http.cio.websocket.*
@@ -21,8 +24,10 @@ import io.ktor.response.*
 import io.ktor.routing.*
 import io.ktor.serialization.*
 import io.ktor.websocket.*
+import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.runBlocking
 import kotlinx.html.*
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
@@ -32,6 +37,8 @@ import kotlinx.serialization.json.put
 import org.slf4j.event.Level
 import websocket.BlasementDweller
 import java.time.Duration
+import java.util.concurrent.ConcurrentHashMap
+import kotlin.reflect.full.createType
 import kotlin.time.ExperimentalTime
 import kotlin.time.seconds
 
@@ -48,11 +55,14 @@ fun HTML.index() {
 
 fun main(args: Array<String>) = io.ktor.server.netty.EngineMain.main(args)
 
+const val CHRONICLER_HOST = "https://api.sibr.dev/chronicler"
+const val UPNUTS_HOST = "https://upnuts.brella.dev"
+
 @OptIn(ExperimentalTime::class)
 fun Application.module(testing: Boolean = false) {
     val json = Json {
         ignoreUnknownKeys = true
-        encodeDefaults = true
+//        encodeDefaults = true
     }
 
     install(ContentNegotiation) {
@@ -64,7 +74,14 @@ fun Application.module(testing: Boolean = false) {
     }
 
     install(ConditionalHeaders)
-    install(StatusPages)
+    install(StatusPages) {
+        exception<Throwable> { cause -> call.respond(HttpStatusCode.InternalServerError, cause.stackTraceToString()) }
+        exception<KorneaResultException> { cause ->
+            val result = cause.result
+            if (result is KorneaHttpResult) call.response.header("X-Response-Source", result.response.request.url.toString())
+            result.respondOnFailure(call)
+        }
+    }
     install(CallLogging) {
         level = Level.INFO
     }
@@ -98,33 +115,38 @@ fun Application.module(testing: Boolean = false) {
     val blaseballApi = BlaseballApi(client)
     val chroniclerApi = ChroniclerApi(client)
 
+//    val massProduction = BlasebackMachineAccelerated.massProduction(client, blaseballApi, json, 5.seconds)
+//
+//    val occurrences: MutableMap<FeedID, Int> = ConcurrentHashMap()
+//    massProduction.globalFeed.onEach { event ->
+//        occurrences.compute(event.event.id) { _, v -> v?.plus(1) ?: 1 }
+//        println("[${occurrences[event.event.id]}] $event")
+//    }.launchIn(GlobalScope).let { job ->
+//        runBlocking { job.join() }
+//    }
+
     val blasement = TheBlasement(json, client, blaseballApi, chroniclerApi)
 
     routing {
-        static("/coffee_cup") {
-            resources("coffee_cup")
-            defaultResource("coffee_cup/index.html")
-        }
-
         route("/blaseball") {
-            route("/current") {
-                blaseball(BlasementLeague(client, BlasementDataSourceWrapper(blaseballApi)))
-            }
-
-            redirectInternally("/season/17", "/collections")
-            route("/collections") {
-                blaseball(BlasementLeague(client, BlasebackMachineAccelerated.collections(client, blaseballApi, json, 5.seconds)))
-            }
+//            route("/current") {
+//                blaseball(BlasementLeague(blasement, client, BlasementDataSourceWrapper(blasement)))
+//            }
+//
+//            redirectInternally("/season/17", "/collections")
+//            route("/collections") {
+//                blaseball(BlasementLeague(blasement, client, BlasebackMachineAccelerated.collections(client, blaseballApi, json, 5.seconds)))
+//            }
 
             redirectInternally("/season/16", "/mass_production")
             route("/mass_production") {
-                blaseball(BlasementLeague(client, BlasebackMachineAccelerated.massProduction(client, blaseballApi, json, 5.seconds)))
+                blaseball(BlasementLeague(blasement, client, BlasebackMachineAccelerated.massProduction(client, blaseballApi, json, 5.seconds)))
             }
 
-            redirectInternally("/season/15", "/live_bait")
-            route("/live_bait") {
-                blaseball(BlasementLeague(client, BlasebackMachineAccelerated.liveBait(client, blaseballApi, json, 5.seconds)))
-            }
+//            redirectInternally("/season/15", "/live_bait")
+//            route("/live_bait") {
+//                blaseball(BlasementLeague(blasement, client, BlasebackMachineAccelerated.liveBait(client, blaseballApi, json, 5.seconds)))
+//            }
         }
 
         get("/random/{following...}") {
@@ -263,12 +285,13 @@ fun Application.module(testing: Boolean = false) {
             println("New client accepted: $localGame")
 
             try {
-                val globalFeed = blasement.globalFeed.flow.onEach { feedEvent ->
-                    send(json.encodeToString(buildJsonObject {
-                        put("type", "FEED_EVENT")
-                        put("data", json.decodeFromString(json.encodeToString(feedEvent)))
-                    }))
-                }.launchIn(this)
+//                val globalFeed = blasement.globalFeed.flow.onEach { feedEvent ->
+//                    send(json.encodeToString(buildJsonObject {
+//                        put("type", "FEED_EVENT")
+//                        put("data", json.decodeFromString(json.encodeToString(feedEvent)))
+//                    }))
+//                }.launchIn(this)
+
                 val updateLog = localGame.updateLog.onEach { schedule ->
                     send(json.encodeToString(buildJsonObject {
                         put("type", "GAME_UPDATE")
@@ -276,7 +299,7 @@ fun Application.module(testing: Boolean = false) {
                     }))
                 }.launchIn(this)
 
-                globalFeed.join()
+//                globalFeed.join()
                 updateLog.join()
 
                 println("Closing client...")

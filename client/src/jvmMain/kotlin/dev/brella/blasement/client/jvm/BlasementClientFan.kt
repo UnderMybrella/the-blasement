@@ -1,14 +1,42 @@
 package dev.brella.blasement.client.jvm
 
+import com.soywiz.klock.DateTimeTz
 import dev.brella.blasement.common.events.*
-import dev.brella.kornea.blaseball.base.common.EnumBlaseballItem
+import dev.brella.kornea.blaseball.base.common.EnumBlaseballSnack
 import dev.brella.kornea.blaseball.base.common.GameID
 import dev.brella.kornea.blaseball.base.common.PlayerID
 import dev.brella.kornea.blaseball.base.common.TeamID
 import kotlinx.coroutines.withTimeout
 
 inline fun BlasementFanPayload.toClient(clientele: BlasementClientele) =
-    BlasementClientFan(clientele, id, name, coins, idol, favouriteTeam, hasUnlockedShop, hasUnlockedElections, inventory.toMutableMap(), inventorySpace, currentBets.toMutableMap())
+    BlasementClientFan(
+        clientele,
+        id,
+        name,
+        coins,
+        idol,
+        favouriteTeam,
+        hasUnlockedShop,
+        hasUnlockedElections,
+        inventory.toMutableMap(),
+        inventorySpace,
+        currentBets.toMutableMap(),
+        email,
+        appleId,
+        googleId,
+        facebookId,
+        password,
+        lastActive,
+        created,
+        loginStreak,
+        peanutsEaten,
+        squirrels,
+        lightMode,
+        spread,
+        coffee,
+        favNumber,
+        trackers
+    )
 
 suspend fun BlasementClientele.getSelf(): BlasementClientFan =
     incomingEvents.doThenWaitForInstance<ServerEvent.FanPayload> { send(ClientEvent.GetSelf) }
@@ -21,15 +49,31 @@ suspend fun BlasementClientele.getAuthenticated(authToken: String): BlasementCli
 class BlasementClientFan(
     val clientele: BlasementClientele,
     override val id: FanID,
-    override val name: String,
+    override val name: String?,
     override var coins: Long,
     override val idol: PlayerID?,
-    override val favouriteTeam: TeamID,
+    override val favouriteTeam: TeamID?,
     override val hasUnlockedShop: Boolean,
     override val hasUnlockedElections: Boolean,
     override val inventory: BlasementMutableInventory,
     override var inventorySpace: Int,
-    override val currentBets: MutableMap<GameID, BlaseballBet>
+    override val currentBets: MutableMap<GameID, BlaseballBet>,
+
+    override val email: String?,
+    override val appleId: String?,
+    override val googleId: String?,
+    override val facebookId: String?,
+    override val password: String?,
+    override val lastActive: DateTimeTz,
+    override val created: DateTimeTz,
+    override val loginStreak: Int,
+    override val peanutsEaten: Int,
+    override val squirrels: Int,
+    override val lightMode: Boolean,
+    override val spread: List<Int>,
+    override val coffee: Int?,
+    override val favNumber: Int?,
+    override val trackers: BlaseballFanTrackers
 ) : BlasementFan {
     override suspend fun beg(): Pair<Int?, EnumBegFail?> = withTimeout(10_000L) {
         val (coinsFound, error) = clientele.incomingEvents.doThenWaitForInstance<ServerEvent.FanActionResponse.Beg> { clientele.send(ClientEvent.PerformFanAction.Beg) }
@@ -48,7 +92,7 @@ class BlasementClientFan(
         return@withTimeout Pair(cost, error)
     }
 
-    override suspend fun purchase(amount: Int, item: EnumBlaseballItem): Pair<Int?, EnumPurchaseItemFail?> = withTimeout(10_000L) {
+    override suspend fun buySnack(amount: Int, item: EnumBlaseballSnack): Pair<Int?, EnumPurchaseItemFail?> = withTimeout(10_000L) {
         val (cost, error) = clientele.incomingEvents.doThenWaitForInstance<ServerEvent.FanActionResponse.PurchaseItem> { clientele.send(ClientEvent.PerformFanAction.PurchaseItem(item, amount)) }
 
         if (cost != null) {
@@ -59,7 +103,7 @@ class BlasementClientFan(
         return@withTimeout Pair(cost, error)
     }
 
-    override suspend fun sell(amount: Int, item: EnumBlaseballItem): Pair<Int?, EnumSellItemFail?> = withTimeout(10_000L) {
+    override suspend fun sell(amount: Int, item: EnumBlaseballSnack): Pair<Int?, EnumSellItemFail?> = withTimeout(10_000L) {
         val (amountBack, error) = clientele.incomingEvents.doThenWaitForInstance<ServerEvent.FanActionResponse.SoldItem> { clientele.send(ClientEvent.PerformFanAction.SellItem(item, amount)) }
 
         if (amountBack != null) {

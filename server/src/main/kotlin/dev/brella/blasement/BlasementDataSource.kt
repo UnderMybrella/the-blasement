@@ -1,8 +1,12 @@
 package dev.brella.blasement
 
+import BlaseballFeed
+import TheBlasement
 import com.soywiz.klock.DateTime
 import com.soywiz.klock.DateTimeTz
+import dev.brella.blasement.common.events.BlaseballFeedEventWithContext
 import dev.brella.blasement.common.events.FanID
+import dev.brella.blasement.common.events.TimeRange
 import dev.brella.kornea.blaseball.BlaseballApi
 import dev.brella.kornea.blaseball.base.common.FeedID
 import dev.brella.kornea.blaseball.base.common.ItemID
@@ -30,10 +34,13 @@ import io.ktor.client.request.*
 import io.ktor.http.*
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.serialization.json.JsonObject
 
 interface BlasementDataSource {
+    val globalFeed: SharedFlow<BlaseballFeedEventWithContext>
+
     suspend fun getFeedByPhase(phase: Int, season: Int): KorneaResult<List<BlaseballFeedEvent>>
     suspend fun getGlobalFeed(category: Int? = null, limit: Int = 100, type: Int? = null, sort: Int? = null, start: String? = null, upNuts: Map<FeedID, Set<FanID>> = emptyMap(), fanID: FanID? = null): KorneaResult<List<BlaseballFeedEvent>>
     suspend fun getPlayerFeed(
@@ -78,7 +85,12 @@ interface BlasementDataSource {
     suspend fun wait(until: DateTimeTz)
 }
 
-data class BlasementDataSourceWrapper(val blaseball: BlaseballApi) : BlasementDataSource {
+data class BlasementDataSourceWrapper(val blasement: TheBlasement) : BlasementDataSource {
+    private val _globalFeed = BlaseballFeed.Global(blasement, getTime = ::now, range = TimeRange(now(), null))
+    override val globalFeed: SharedFlow<BlaseballFeedEventWithContext> by _globalFeed::flow
+
+    inline val blaseball get() = blasement.blaseballApi
+
     override suspend fun getFeedByPhase(phase: Int, season: Int): KorneaResult<List<BlaseballFeedEvent>> =
         blaseball.getFeedByPhase(phase, season)
 

@@ -1,51 +1,128 @@
+import com.soywiz.klock.DateTimeTz
+import dev.brella.blasement.bindAs
 import dev.brella.blasement.common.events.*
-import dev.brella.kornea.blaseball.base.common.BlaseballRewardShopItem
-import dev.brella.kornea.blaseball.base.common.BlaseballRewardShopItem.Companion.SLOT_PRICE
-import dev.brella.kornea.blaseball.base.common.EnumBlaseballItem
+import dev.brella.kornea.blaseball.base.common.BlaseballRewardShopSnack
+import dev.brella.kornea.blaseball.base.common.BlaseballRewardShopSnack.Companion.SLOT_PRICE
+import dev.brella.kornea.blaseball.base.common.EnumBlaseballSnack
 import dev.brella.kornea.blaseball.base.common.GameID
 import dev.brella.kornea.blaseball.base.common.PlayerID
 import dev.brella.kornea.blaseball.base.common.TeamID
+import dev.brella.kornea.blaseball.base.common.joinParams
 import dev.brella.kornea.toolkit.coroutines.ReadWriteSemaphore
 import dev.brella.kornea.toolkit.coroutines.withWritePermit
 import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.reactive.awaitFirst
 import kotlinx.coroutines.reactive.awaitFirstOrNull
-import kotlinx.coroutines.reactive.awaitSingle
-import kotlinx.coroutines.reactive.awaitSingleOrNull
+import kotlinx.serialization.json.JsonPrimitive
+import org.springframework.r2dbc.core.await
+import org.springframework.r2dbc.core.awaitSingleOrNull
+import org.springframework.r2dbc.core.bind as bindNullable
 import java.util.*
-import kotlin.collections.HashMap
 import kotlin.random.Random
 
+import java.util.UUID as JUUID
+import dev.brella.kornea.blaseball.base.common.UUID as KUUID
+
 fun BlasementFanPayload.toHost(blasement: TheBlasement): BlasementHostFan =
-    BlasementHostFan(blasement, id, name, coins, idol, favouriteTeam, hasUnlockedShop, hasUnlockedElections, inventory, inventorySpace, currentBets)
+    BlasementHostFan(
+        blasement = blasement,
+        id = id,
+        email = email,
+        appleId = appleId,
+        googleId = googleId,
+        facebookId = facebookId,
+        name = name,
+        password = password,
+        coins = coins,
+        lastActive = lastActive,
+        created = created,
+        loginStreak = loginStreak,
+        idol = idol,
+        favouriteTeam = favouriteTeam,
+        hasUnlockedShop = hasUnlockedShop,
+        hasUnlockedElections = hasUnlockedElections,
+        peanutsEaten = peanutsEaten,
+        squirrels = squirrels,
+        lightMode = lightMode,
+        spread = spread,
+        coffee = coffee,
+        favNumber = favNumber,
+        inventory = inventory,
+        inventorySpace = inventorySpace,
+        currentBets = currentBets,
+        trackers = trackers
+    )
 
 class BlasementHostFan(
     val blasement: TheBlasement,
     override val id: FanID,
 
-    override val name: String,
+    override val email: String? = null,
+    override val appleId: String? = null,
+    override val googleId: String? = null,
+    override val facebookId: String? = null,
+
+    override val name: String? = null,
+    override val password: String? = null,
+
     coins: Long,
+
+    lastActive: DateTimeTz,
+    override val created: DateTimeTz,
+
+    loginStreak: Int,
+
     idol: PlayerID? = null,
-    favouriteTeam: TeamID,
+    favouriteTeam: TeamID?,
 
     hasUnlockedShop: Boolean = false,
     hasUnlockedElections: Boolean = false,
 
+    peanutsEaten: Int = 0,
+    squirrels: Int = 0,
+    lightMode: Boolean = false,
+    spread: List<Int> = emptyList(),
+    coffee: Int? = null,
+    favNumber: Int? = null,
+
     inventory: BlasementInventory = emptyMap(),
     inventorySpace: Int = 8,
-    currentBets: Map<GameID, BlaseballBet> = emptyMap()
+    currentBets: Map<GameID, BlaseballBet> = emptyMap(),
+
+    trackers: BlaseballFanTrackers = BlaseballFanTrackers()
 ) : BlasementFan {
-    constructor(payload: BlasementFanDatabasePayload, blasement: TheBlasement, items: List<Pair<EnumBlaseballItem, Int>?>, bets: List<Triple<String, String, Int>>) : this(
+    constructor(payload: BlasementFanDatabasePayload, blasement: TheBlasement, items: List<Pair<EnumBlaseballSnack, Int>?>, bets: List<Triple<KUUID, KUUID, Int>>, trackers: BlaseballFanTrackers) : this(
         blasement,
         payload.fanID,
-        payload.fanName,
+        payload.email,
+        payload.appleId,
+        payload.googleId,
+        payload.facebookId,
+
+        payload.name,
+        payload.password,
+
         payload.coins,
+
+        payload.lastActive,
+        payload.created,
+
+        payload.loginStreak,
+
         payload.idol,
         payload.favouriteTeam,
+
         payload.hasUnlockedShop,
         payload.hasUnlockedElections,
 
-        inventorySpace = payload.inventorySpace
+        payload.peanutsEaten,
+        payload.squirrels,
+        payload.lightMode,
+        payload.spread,
+        payload.coffee,
+        payload.favNumber,
+
+        inventorySpace = payload.inventorySpace,
+        trackers = trackers
     ) {
         items.forEach { pair ->
             if (pair != null) {
@@ -64,6 +141,12 @@ class BlasementHostFan(
     private var _coins = coins
     override val coins by ::_coins
 
+    private var _lastActive = lastActive
+    override val lastActive by ::_lastActive
+
+    private var _loginStreak = loginStreak
+    override val loginStreak by ::_loginStreak
+
     private var _idol = idol
     override val idol by ::_idol
 
@@ -76,8 +159,26 @@ class BlasementHostFan(
     private var _electionsUnlocked = hasUnlockedElections
     override val hasUnlockedElections by ::_electionsUnlocked
 
-    private val _inventory: BlasementMutableInventory = EnumMap(EnumBlaseballItem::class.java)
-    override val inventory: Map<EnumBlaseballItem, Int> by ::_inventory
+    private var _peanutsEaten = peanutsEaten
+    override val peanutsEaten by ::_peanutsEaten
+
+    private var _squirrels = squirrels
+    override val squirrels by ::_squirrels
+
+    private var _lightMode = lightMode
+    override val lightMode by ::_lightMode
+
+    private var _spread: MutableList<Int> = ArrayList(spread)
+    override val spread by ::_spread
+
+    private var _coffee = coffee
+    override val coffee by ::_coffee
+
+    private var _favNumber = favNumber
+    override val favNumber by ::_favNumber
+
+    private val _inventory: BlasementMutableInventory = EnumMap(EnumBlaseballSnack::class.java)
+    override val inventory: Map<EnumBlaseballSnack, Int> by ::_inventory
 
     private var _inventorySpace: Int = inventorySpace
     override val inventorySpace by ::_inventorySpace
@@ -85,181 +186,185 @@ class BlasementHostFan(
     val inventoryFull: Boolean
         get() = _inventory.size == _inventorySpace
 
-    private val _bets: MutableMap<GameID, BlaseballBet> = HashMap()
+    private val _bets: MutableMap<GameID, BlaseballBet> = HashMap(currentBets)
     override val currentBets: Map<GameID, BlaseballBet> by ::_bets
+
+    private var _trackers = trackers
+    override val trackers by ::_trackers
 
     private suspend inline fun coins(calculate: (coins: Long) -> Long) = setCoins(calculate(_coins))
     suspend fun setCoins(calculate: (coins: Long) -> Long) = semaphore.withWritePermit { setCoins(calculate(_coins)) }
     private suspend fun setCoins(newValue: Long) {
-        blasement.connectionFactory
-            .create()
-            .use { connection ->
-                connection.createStatement("UPDATE FANS SET COINS = $2 WHERE FAN_ID = $1;")
-                    .bind("$1", id.id)
-                    .bind("$2", newValue)
-                    .execute()
-                    .awaitFirst()
+        blasement.client.sql("UPDATE fans SET coins = $2 WHERE fan_id = $1")
+            .bindAs("$1", id)
+            .bind("$2", newValue)
+            .await()
 
-                _coins = newValue
-            }
+        _coins = newValue
     }
 
     private suspend inline fun shopUnlocked(calculate: (hasUnlockedShop: Boolean) -> Boolean) = setShopUnlocked(calculate(_shopUnlocked))
     suspend fun setShopUnlocked(calculate: (hasUnlockedShop: Boolean) -> Boolean) = semaphore.withWritePermit { setShopUnlocked(calculate(_shopUnlocked)) }
     private suspend fun setShopUnlocked(newValue: Boolean) {
-        blasement.connectionFactory
-            .create()
-            .use { connection ->
-                connection.createStatement("UPDATE FANS SET HAS_UNLOCKED_SHOP = $2 WHERE FAN_ID = $1;")
-                    .bind("$1", id.id)
-                    .bind("$2", newValue)
-                    .execute()
-                    .awaitFirst()
+        blasement.client.sql("UPDATE fans SET has_unlocked_shop = $2 WHERE fan_id = $1")
+            .bindAs("$1", id)
+            .bind("$2", newValue)
+            .await()
 
-                _shopUnlocked = newValue
-            }
+        _shopUnlocked = newValue
     }
 
     private suspend inline fun electionsUnlocked(calculate: (hasUnlockedElections: Boolean) -> Boolean) = setElectionsUnlocked(calculate(_electionsUnlocked))
     suspend fun setElectionsUnlocked(calculate: (hasUnlockedElections: Boolean) -> Boolean) = semaphore.withWritePermit { setElectionsUnlocked(calculate(_electionsUnlocked)) }
     private suspend fun setElectionsUnlocked(newValue: Boolean) {
-        blasement.connectionFactory
-            .create()
-            .use { connection ->
-                connection.createStatement("UPDATE FANS SET HAS_UNLOCKED_ELECTIONS = $2 WHERE FAN_ID = $1;")
-                    .bind("$1", id.id)
-                    .bind("$2", newValue)
-                    .execute()
-                    .awaitFirst()
+        blasement.client.sql("UPDATE fans SET has_unlocked_elections = $2 WHERE fan_id = $1")
+            .bindAs("$1", id)
+            .bind("$2", newValue)
+            .await()
 
-                _shopUnlocked = hasUnlockedShop
-            }
+        _electionsUnlocked = newValue
+    }
+
+    private suspend inline fun favNumber(calculate: (favNumber: Int?) -> Int?) = setFavNumber(calculate(_favNumber))
+    suspend fun setFavNumber(calculate: (favNumber: Int?) -> Int?) = semaphore.withWritePermit { setFavNumber(calculate(_favNumber)) }
+    private suspend fun setFavNumber(newValue: Int?) {
+        //row["coffee"] as? Int,
+        //                        row["fav_number"] as? Int
+
+        blasement.client.sql("UPDATE fans SET fav_number = $2 WHERE fan_id = $1")
+            .bindAs("$1", id)
+            .bindNullable("$2", newValue)
+            .await()
+
+        _favNumber = newValue
+    }
+
+    private suspend inline fun coffee(calculate: (coffee: Int?) -> Int?) = setCoffee(calculate(_coffee))
+    suspend fun setCoffee(calculate: (coffee: Int?) -> Int?) = semaphore.withWritePermit { setCoffee(calculate(_coffee)) }
+    private suspend fun setCoffee(newValue: Int?) {
+        //row["coffee"] as? Int,
+        //                        row["fav_number"] as? Int
+
+        blasement.client.sql("UPDATE fans SET coffee = $2 WHERE fan_id = $1")
+            .bindAs("$1", id)
+            .bindNullable("$2", newValue)
+            .await()
+
+        _coffee = newValue
     }
 
     private suspend inline fun inventorySpace(calculate: (inventorySpace: Int) -> Int) = setInventorySpace(calculate(_inventorySpace))
     suspend fun setInventorySpace(calculate: (inventorySpace: Int) -> Int) = semaphore.withWritePermit { setInventorySpace(calculate(_inventorySpace)) }
     private suspend fun setInventorySpace(newValue: Int) {
-        blasement.connectionFactory
-            .create()
-            .use { connection ->
-                connection.createStatement("UPDATE FANS SET INVENTORY_SPACE = $2 WHERE FAN_ID = $1;")
-                    .bind("$1", id.id)
-                    .bind("$2", newValue)
-                    .execute()
-                    .awaitFirst()
+        blasement.client.sql("UPDATE fans SET inventory_space = $2 WHERE fan_id = $1")
+            .bindAs("$1", id)
+            .bind("$2", newValue)
+            .await()
 
-                _shopUnlocked = hasUnlockedShop
-            }
+        _inventorySpace = newValue
     }
 
-    private suspend inline fun item(item: EnumBlaseballItem, calculate: (amount: Int?) -> Int) = setItemQuantity(item, calculate(inventory[item]))
-    suspend fun setItemQuantity(item: EnumBlaseballItem, calculate: (amount: Int?) -> Int) = semaphore.withWritePermit { setItemQuantity(item, calculate(inventory[item])) }
+    private suspend inline fun item(item: EnumBlaseballSnack, calculate: (amount: Int?) -> Int) = setItemQuantity(item, calculate(inventory[item]))
+    suspend fun setItemQuantity(item: EnumBlaseballSnack, calculate: (amount: Int?) -> Int) = semaphore.withWritePermit { setItemQuantity(item, calculate(inventory[item])) }
 
-    private suspend inline fun addItem(item: EnumBlaseballItem, calculate: (amount: Int?) -> Int) = setItemQuantity(item, inventory[item]?.let { it + calculate(it) } ?: calculate(null))
-    suspend fun addItemQuantity(item: EnumBlaseballItem, calculate: (amount: Int?) -> Int) = semaphore.withWritePermit { setItemQuantity(item, inventory[item]?.let { it + calculate(it) } ?: calculate(null)) }
+    private suspend inline fun addItem(item: EnumBlaseballSnack, calculate: (amount: Int?) -> Int) = setItemQuantity(item, inventory[item]?.let { it + calculate(it) } ?: calculate(null))
+    suspend fun addItemQuantity(item: EnumBlaseballSnack, calculate: (amount: Int?) -> Int) = semaphore.withWritePermit { setItemQuantity(item, inventory[item]?.let { it + calculate(it) } ?: calculate(null)) }
 
-    private suspend inline fun removeItem(item: EnumBlaseballItem, calculate: (amount: Int?) -> Int) {
-        return setItemQuantity(item, (inventory[item] ?: return).let { it + calculate(it) })
+    private suspend inline fun removeItem(item: EnumBlaseballSnack, calculate: (amount: Int?) -> Int) {
+        return setItemQuantity(item, (inventory[item] ?: return).let { it - calculate(it) })
     }
 
-    suspend fun removeItemQuantity(item: EnumBlaseballItem, calculate: (amount: Int?) -> Int) = semaphore.withWritePermit { setItemQuantity(item, (inventory[item] ?: return@withWritePermit).let { it + calculate(it) }) }
+    suspend fun removeItemQuantity(item: EnumBlaseballSnack, calculate: (amount: Int?) -> Int) = semaphore.withWritePermit { setItemQuantity(item, (inventory[item] ?: return@withWritePermit).let { it - calculate(it) }) }
 
-    private suspend fun setItemQuantity(item: EnumBlaseballItem, newValue: Int) {
+    private suspend fun setItemQuantity(item: EnumBlaseballSnack, newValue: Int) {
         if (inventoryFull && item !in _inventory) {
             if (newValue <= 0) return
 
             throw IllegalArgumentException("No space in $name[${id.id}]'s inventory for ${newValue}x $item!")
         }
-        blasement.connectionFactory
-            .create()
-            .use { connection ->
-                val quantity = connection.createStatement("SELECT QUANTITY FROM ITEMS WHERE FAN_ID = $1 AND ITEM_NAME = $2")
-                    .bind("$1", id.id)
+        val quantity = blasement.client.sql("SELECT quantity FROM items WHERE fan_id = $1 AND item_name = $2")
+            .bindAs("$1", id)
+            .bind("$2", item.name)
+            .map { row -> row["quantity"] as Number }
+            .awaitSingleOrNull()
+            ?.toInt()
+
+        when {
+            quantity == null -> {
+                blasement.client.sql("INSERT INTO items (fan_id, item_name, quantity) VALUES ( $1, $2, $3 )")
+                    .bindAs("$1", id)
                     .bind("$2", item.name)
-                    .execute()
-                    .awaitFirstOrNull()
-                    ?.map { row, _ -> row["QUANTITY"] as Int }
-                    ?.awaitSingleOrNull()
+                    .bind("$3", newValue)
+                    .await()
 
-                when {
-                    quantity == null -> {
-                        connection.createStatement("INSERT INTO ITEMS (FAN_ID, ITEM_NAME, QUANTITY) VALUES ( $1, $2, $3 )")
-                            .bind("$1", id.id)
-                            .bind("$2", item.name)
-                            .bind("$3", newValue)
-                            .execute()
-                            .awaitSingle()
-
-                        _inventory[item] = newValue
-                    }
-                    newValue > 0 -> {
-                        connection.createStatement("UPDATE ITEMS SET QUANTITY = $3 WHERE FAN_ID = $1 AND ITEM_NAME = $2;")
-                            .bind("$1", id.id)
-                            .bind("$2", item.name)
-                            .bind("$3", newValue)
-                            .execute()
-                            .awaitFirst()
-
-                        _inventory[item] = newValue
-                    }
-                    else -> {
-                        connection.createStatement("DELETE FROM ITEMS WHERE FAN_ID = $1 AND ITEM_NAME = $2;")
-                            .bind("$1", id.id)
-                            .bind("$2", item.name)
-                            .execute()
-                            .awaitFirst()
-
-                        _inventory.remove(item)
-                    }
-                }
+                _inventory[item] = newValue
             }
+            newValue > 0 -> {
+                blasement.client.sql("UPDATE items SET quantity = $3 WHERE fan_id = $1 AND item_name = $2")
+                    .bindAs("$1", id)
+                    .bind("$2", item.name)
+                    .bind("$3", newValue)
+                    .await()
+
+                _inventory[item] = newValue
+            }
+            else -> {
+                blasement.client.sql("DELETE FROM items WHERE fan_id = $1 AND item_name = $2")
+                    .bindAs("$1", id)
+                    .bind("$2", item.name)
+                    .await()
+
+                _inventory.remove(item)
+            }
+        }
     }
 
     suspend fun gameCompleted(game: GameID): BlaseballBet? {
         val bet = _bets.remove(game) ?: return null
+        println("Bet: $bet")
 
-        blasement.connectionFactory
-            .create()
-            .use { connection ->
-                connection.createStatement("DELETE FROM BETS WHERE FAN_ID = $1 AND GAME_ID = $2;")
-                    .bind("$1", id.id)
-                    .bind("$2", game.id)
-                    .execute()
-                    .awaitFirstOrNull()
-            }
+//        blasement.client.sql("DELETE FROM bets WHERE fan_id = $1 AND game_id = $2")
+//            .bindAs("$1", id)
+//            .bindAs("$2", game)
+//            .await()
 
         return bet
     }
 
     private suspend fun bet(game: GameID, team: TeamID, amount: Int) {
-        blasement.connectionFactory
-            .create()
-            .use { connection ->
-                val quantity = connection.createStatement("SELECT AMOUNT FROM BETS WHERE FAN_ID = $1 AND GAME_ID = $2")
-                    .bind("$1", id.id)
-                    .bind("$2", game.id)
-                    .execute()
-                    .awaitFirstOrNull()
-                    ?.map { row, _ -> row["AMOUNT"] as? Int }
-                    ?.awaitFirstOrNull()
+        val quantity = blasement.client.sql("SELECT amount FROM BETS WHERE fan_id = $1 AND game_id = $2")
+            .bindAs("$1", id)
+            .bindAs("$2", game)
+            .map { row, _ -> row["amount"] as? Number }
+            .awaitSingleOrNull()
+            ?.toInt()
 
-                if (quantity != null) throw IllegalStateException("Bet already placed for ${game.id}!")
+        if (quantity != null) throw IllegalStateException("Bet already placed for ${game.id}!")
 
-                connection.createStatement("INSERT INTO BETS (FAN_ID, GAME_ID, TEAM_ID, AMOUNT) VALUES ( $1, $2, $3, $4 )")
-                    .bind("$1", id.id)
-                    .bind("$2", game.id)
-                    .bind("$3", team.id)
-                    .bind("$4", amount)
-                    .execute()
-                    .awaitSingle()
+        blasement.client.sql("INSERT INTO bets (fan_id, game_id, team_id, amount) VALUES ( $1, $2, $3, $4 )")
+            .bindAs("$1", id)
+            .bindAs("$2", game)
+            .bindAs("$3", team)
+            .bind("$4", amount)
+            .await()
 
-                _bets[game] = BlaseballBet(team, amount)
-            }
+        _bets[game] = BlaseballBet(team, amount)
+    }
+
+    private suspend inline fun changeTeam(calculate: (favouriteTeam: TeamID?) -> TeamID) = setFavouriteTeam(calculate(_favouriteTeam))
+    suspend fun setFavouriteTeam(calculate: (favouriteTeam: TeamID?) -> TeamID) = semaphore.withWritePermit { setFavouriteTeam(calculate(_favouriteTeam)) }
+    private suspend fun setFavouriteTeam(newValue: TeamID) {
+        blasement.client.sql("UPDATE fans SET favourite_team = $2 WHERE fan_id = $1")
+            .bindAs("$1", id)
+            .bindAs("$2", newValue)
+            .await()
+
+        _favouriteTeam = newValue
     }
 
     override suspend fun beg(): Pair<Int?, EnumBegFail?> = semaphore.withWritePermit {
         if (coins > 0) return Pair(null, EnumBegFail.TOO_MANY_COINS)
-        if (EnumBlaseballItem.BREAD_CRUMBS !in inventory) return Pair(null, EnumBegFail.NO_BREAD_CRUMBS)
+        if (EnumBlaseballSnack.BREAD_CRUMBS !in inventory) return Pair(null, EnumBegFail.NO_BREAD_CRUMBS)
 
         val begCoins = Random.nextInt(5, 20)
         coins { it + begCoins }
@@ -279,7 +384,7 @@ class BlasementHostFan(
         return price to null
     }
 
-    override suspend fun purchase(amount: Int, item: EnumBlaseballItem): Pair<Int?, EnumPurchaseItemFail?> = semaphore.withWritePermit {
+    override suspend fun buySnack(amount: Int, item: EnumBlaseballSnack): Pair<Int?, EnumPurchaseItemFail?> = semaphore.withWritePermit {
         if (!hasUnlockedShop) return null to EnumPurchaseItemFail.MEMBERSHIP_LOCKED
         val count = inventory[item]
 
@@ -290,7 +395,7 @@ class BlasementHostFan(
             val tiers = item.tiers!!.drop(count ?: 0).take(amount)
             if (tiers.isEmpty()) return null to EnumPurchaseItemFail.TIER_TOO_HIGH
 
-            val price = tiers.sumBy(BlaseballRewardShopItem::price)
+            val price = tiers.sumBy(BlaseballRewardShopSnack::price)
 
             if (coins < price) return null to EnumPurchaseItemFail.NOT_ENOUGH_COINS
 
@@ -322,7 +427,7 @@ class BlasementHostFan(
         }
     }
 
-    override suspend fun sell(amount: Int, item: EnumBlaseballItem): Pair<Int?, EnumSellItemFail?> = semaphore.withWritePermit {
+    override suspend fun sell(amount: Int, item: EnumBlaseballSnack): Pair<Int?, EnumSellItemFail?> = semaphore.withWritePermit {
         if (!hasUnlockedShop) return null to EnumSellItemFail.MEMBERSHIP_LOCKED
         val count = inventory[item] ?: return null to EnumSellItemFail.ITEM_NOT_IN_INVENTORY
         if (amount > count) return null to EnumSellItemFail.NOT_ENOUGH_ITEMS
@@ -337,7 +442,7 @@ class BlasementHostFan(
     override suspend fun purchaseSlot(amount: Int): Pair<Int?, EnumPurchaseSlotFail?> = semaphore.withWritePermit {
         if (!hasUnlockedShop) return null to EnumPurchaseSlotFail.MEMBERSHIP_LOCKED
 
-        val availableSlotsToBuy = BlaseballRewardShopItem.SLOT_MULTIPLIERS.size - inventory.size
+        val availableSlotsToBuy = BlaseballRewardShopSnack.SLOT_MULTIPLIERS.size - inventory.size
         if (availableSlotsToBuy < amount) return null to EnumPurchaseSlotFail.TOO_MANY_SLOTS
         val price = amount * SLOT_PRICE
         if (coins < price) return null to EnumPurchaseSlotFail.NOT_ENOUGH_COINS
@@ -351,13 +456,14 @@ class BlasementHostFan(
     override suspend fun sellSlot(amount: Int): Pair<Int?, EnumSellSlotFail?> = semaphore.withWritePermit {
         if (!hasUnlockedShop) return null to EnumSellSlotFail.MEMBERSHIP_LOCKED
 
-        if (inventory.size > amount) return null to EnumSellSlotFail.NOT_ENOUGH_SLOTS
+        if (inventory.size < amount) return null to EnumSellSlotFail.NOT_ENOUGH_SLOTS
         val availableSlotsToSell = inventorySpace - inventory.size
         if (availableSlotsToSell < amount) return null to EnumSellSlotFail.NO_EMPTY_SLOTS
 
         val amountBack = amount * SLOT_PRICE
 
-        coins { it + amountBack }
+        //TODO: The Blaseball *server* doesn't do this, but the *client* does - determine which is best
+//        coins { it + amountBack }
         inventorySpace { it - amount }
 
         return amountBack to null
@@ -367,8 +473,8 @@ class BlasementHostFan(
         if (amount > coins) return EnumBetFail.NOT_ENOUGH_COINS
         if (amount <= 0) return EnumBetFail.CANT_BET_ZERO
 
-        val count = inventory[EnumBlaseballItem.SNAKE_OIL]?.takeIf { it > 0 } ?: 1
-        val maxBet = EnumBlaseballItem.SNAKE_OIL[count - 1]!!.payout
+        val count = inventory[EnumBlaseballSnack.SNAKE_OIL]?.takeIf { it > 0 } ?: return@withWritePermit EnumBetFail.NO_SNAKE_OIL
+        val maxBet = EnumBlaseballSnack.SNAKE_OIL[count - 1]!!.payout
 
         if (amount > maxBet) return EnumBetFail.BET_TOO_HIGH
 
@@ -376,5 +482,42 @@ class BlasementHostFan(
         bet(onGame, onTeam, amount)
 
         return null
+    }
+
+    suspend fun getToasts(by: Long, clear: Boolean = true): List<String> {
+        if (clear) {
+            val toasts = blasement.client.sql("SELECT id, toast FROM toasts WHERE fan_id = $1 AND timestamp <= $2")
+                             .bindAs("$1", id)
+                             .bind("$2", by)
+                             .map { row -> Pair(row["id"] as Long, row["toast"] as String) }
+                             .all()
+                             .collectList()
+                             .awaitFirstOrNull() ?: return emptyList()
+
+            blasement.client.sql("DELETE FROM toasts WHERE id = ANY($1)")
+                .bind("$1", Array(toasts.size) { toasts[it].first })
+                .await()
+
+            return toasts.map(Pair<Long, String>::second)
+        } else {
+            return blasement.client.sql("SELECT toast FROM toasts WHERE fan_id = $1 AND timestamp <= $2")
+                             .bindAs("$1", id)
+                             .bind("$2", by)
+                             .map { row -> row["toast"] as String }
+                             .all()
+                             .collectList()
+                             .awaitFirstOrNull() ?: emptyList()
+        }
+    }
+
+    suspend fun addToast(toast: String, time: Long) =
+        blasement.client.sql("INSERT INTO toasts (fan_id, toast, timestamp) VALUES ($1, $2, $3)")
+            .bindAs("$1", id)
+            .bind("$2", toast)
+            .bind("$3", time)
+            .await()
+
+    init {
+        _inventory.putAll(inventory)
     }
 }

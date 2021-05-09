@@ -33,6 +33,10 @@ import java.util.*
 import java.util.concurrent.Executors
 import kotlin.coroutines.CoroutineContext
 
+
+import java.util.UUID as JUUID
+import dev.brella.kornea.blaseball.base.common.UUID as KUUID
+
 class BlasementDweller(val blasement: TheBlasement, val format: SerialFormat, val websocket: DefaultWebSocketServerSession) {
     companion object : CoroutineScope {
         override val coroutineContext: CoroutineContext = Executors.newCachedThreadPool().asCoroutineDispatcher()
@@ -74,18 +78,18 @@ class BlasementDweller(val blasement: TheBlasement, val format: SerialFormat, va
                 ?.onEach { schedule -> sendEvent(ServerEvent.GameUpdate(schedule)) }
                 ?.launchIn(websocket)
 
-            is ClientEvent.SubscribeToGlobalFeed -> blasement.globalFeed
-                .flow
-                .onEach { feedEvent -> sendEvent(ServerEvent.GlobalFeedEvent(feedEvent)) }
-                .launchIn(websocket)
-
-            is ClientEvent.SubscribeToGlobalFeedEvents ->
-                event.types.forEach { type ->
-                    blasement.globalFeed
-                        .flowByType(type)
-                        .onEach { sendEvent(ServerEvent.GlobalFeedEvent(it)) }
-                        .launchIn(websocket)
-                }
+//            is ClientEvent.SubscribeToGlobalFeed -> blasement.globalFeed
+//                .flow
+//                .onEach { feedEvent -> sendEvent(ServerEvent.GlobalFeedEvent(feedEvent)) }
+//                .launchIn(websocket)
+//
+//            is ClientEvent.SubscribeToGlobalFeedEvents ->
+//                event.types.forEach { type ->
+//                    blasement.globalFeed
+//                        .flowByType(type)
+//                        .onEach { sendEvent(ServerEvent.GlobalFeedEvent(it)) }
+//                        .launchIn(websocket)
+//                }
 
             is ClientEvent.GetDate -> sendEvent(blasement.today().let { (season, day) -> ServerEvent.CurrentDate(season, day) })
             is ClientEvent.GetTodaysGames -> sendEvent(blasement.today().let { (season, day) -> ServerEvent.GameList(season, day, blasement.gamesToday()) })
@@ -106,7 +110,7 @@ class BlasementDweller(val blasement: TheBlasement, val format: SerialFormat, va
 
                 if (value < 16) return sendEvent(ServerEvent.FanCreationTooExpensive)
 
-                val (authToken, newFan) = blasement.newFan(event.name, event.favouriteTeam)
+                val (authToken, newFan) = blasement.newFan(JUUID.randomUUID(), event.name, event.favouriteTeam)
 
                 this.fanJob?.cancel()
 
@@ -130,7 +134,7 @@ class BlasementDweller(val blasement: TheBlasement, val format: SerialFormat, va
                 else {
                     val jwt = jwt.getOrThrow()
                     val fanID = jwt.body.id
-                    val fan = blasement.fans.firstOrNull { fan -> fan.id.id == fanID } ?: return sendEvent(ServerEvent.InvalidAuthToken)
+                    val fan = blasement.fans[KUUID.fromString(fanID)] ?: return sendEvent(ServerEvent.InvalidAuthToken)
                     println("Authenticated w/ $fan")
 
                     this.fanJob?.cancel()
@@ -161,7 +165,7 @@ class BlasementDweller(val blasement: TheBlasement, val format: SerialFormat, va
                     when (event) {
                         is ClientEvent.PerformFanAction.Beg -> sendEvent(ServerEvent.FanActionResponse.Beg(better.beg()))
                         is ClientEvent.PerformFanAction.PurchaseMembershipCard -> sendEvent(ServerEvent.FanActionResponse.PurchaseShopMembershipCard(better.purchaseShopMembershipCard()))
-                        is ClientEvent.PerformFanAction.PurchaseItem -> sendEvent(ServerEvent.FanActionResponse.PurchaseItem(better.purchase(event.amount, event.item)))
+                        is ClientEvent.PerformFanAction.PurchaseItem -> sendEvent(ServerEvent.FanActionResponse.PurchaseItem(better.buySnack(event.amount, event.item)))
                         is ClientEvent.PerformFanAction.SellItem -> sendEvent(ServerEvent.FanActionResponse.SoldItem(better.sell(event.amount, event.item)))
                         is ClientEvent.PerformFanAction.PurchaseSlot -> sendEvent(ServerEvent.FanActionResponse.PurchaseSlot(better.purchaseSlot(event.amount)))
                         is ClientEvent.PerformFanAction.SellSlot -> sendEvent(ServerEvent.FanActionResponse.SoldSlot(better.sellSlot(event.amount)))
