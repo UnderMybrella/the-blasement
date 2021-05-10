@@ -75,15 +75,14 @@ sealed class BlaseballFeed(
 
     class Global(
         val blaseballApi: BlaseballApi,
-        getGameSteps: GameStepFunc,
+        val httpClient: HttpClient,
         loopDuration: Duration = DEFAULT_LOOP_DURATION,
         getTime: suspend () -> DateTimeTz,
         range: TimeRange,
         scope: CoroutineScope,
         context: CoroutineContext = scope.coroutineContext
-    ) : BlaseballFeed.GameStepsFunc(
+    ) : BlaseballFeed(
         "GLOBAL",
-        getGameSteps,
         loopDuration,
         getTime,
         range,
@@ -92,13 +91,66 @@ sealed class BlaseballFeed(
     ) {
         constructor(blasement: TheBlasement, loopDuration: Duration = DEFAULT_LOOP_DURATION, getTime: suspend () -> DateTimeTz, range: TimeRange, scope: CoroutineScope = blasement, context: CoroutineContext = scope.coroutineContext) : this(
             blasement.blaseballApi,
-            blasement.liveData::getGames,
+            blasement.httpClient,
             loopDuration,
             getTime,
             range,
             scope,
             context
         )
+
+        val gameStepCache = Caffeine.newBuilder()
+            .maximumSize(24)
+            .expireAfterAccess(1, TimeUnit.MINUTES)
+            .build<GameID, Map<Int, BlaseballDatabaseGame>>()
+
+        override suspend fun getGameSteps(gameIDs: Iterable<GameID>): Map<GameID, Map<Int, BlaseballDatabaseGame>> {
+//            println(">> Hitting Game Steps >>")
+            val map: MutableMap<GameID, MutableMap<Int, BlaseballDatabaseGame>> = HashMap()
+
+            gameStepCache.getAllPresent(gameIDs)
+                .forEach { (gameID, gameSteps) ->
+                    try {
+                        map[gameID] = gameSteps.toMutableMap()
+                    } catch (th: Throwable) {
+                        th.printStackTrace()
+                    }
+                }
+
+            val newGameIDs = gameIDs.filterNot(map::containsKey)
+            var page: String? = null
+
+            val gameParams = newGameIDs.joinParams()
+            val limit = (200 * newGameIDs.size).coerceAtMost(1000)
+
+            while (true) {
+//                println(">> Game Steps Loop; Retrieving $limit >>")
+                yield()
+
+                val response = httpClient.getAsResult<ChroniclerResponseWrapper<ChroniclerGameUpdateWrapper>>("$CHRONICLER_HOST/v1/games/updates") {
+                    page?.let { parameter("page", it) }
+                    parameter("game", gameParams)
+                    parameter("count", limit)
+
+//                    println("Requesting ${url.clone().buildString()}")
+                }.getOrNull() ?: break
+
+//                println(">> Got ${response.data?.size} Results >>")
+
+                if (response.data?.isNotEmpty() != true) break
+
+                page = response.nextPage
+
+                response.data.forEach { game ->
+                    map.computeIfAbsent(GameID(game.gameId)) { HashMap() }
+                        .putIfAbsent(game.data.playCount, game.data)
+                }
+            }
+
+            map.forEach { (gameID, gameSteps) -> gameStepCache.put(gameID, gameSteps) }
+
+            return map
+        }
 
         override suspend fun getFeed(limit: Int, offset: Int?, start: DateTimeTz?): KorneaResult<List<BlaseballFeedEvent>> =
             blaseballApi.getGlobalFeed(limit = limit, sort = 1, start = offset?.toString())

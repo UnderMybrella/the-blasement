@@ -62,7 +62,7 @@ class BlasementClientFan(
     override val email: String?,
     override val appleId: String?,
     override val googleId: String?,
-    override val facebookId: String?,
+    override val discordId: String?,
     override val password: String?,
     override val lastActive: DateTimeTz,
     override val created: DateTimeTz,

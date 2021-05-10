@@ -26,7 +26,7 @@ fun BlasementFanPayload.toHost(blasement: TheBlasement): BlasementHostFan =
         email = email,
         appleId = appleId,
         googleId = googleId,
-        facebookId = facebookId,
+        discordId = facebookId,
         name = name,
         password = password,
         coins = coins,
@@ -56,7 +56,7 @@ class BlasementHostFan(
     override val email: String? = null,
     override val appleId: String? = null,
     override val googleId: String? = null,
-    override val facebookId: String? = null,
+    override val discordId: String? = null,
 
     override val name: String? = null,
     override val password: String? = null,
@@ -85,7 +85,13 @@ class BlasementHostFan(
     inventorySpace: Int = 8,
     currentBets: Map<GameID, BlaseballBet> = emptyMap(),
 
-    trackers: BlaseballFanTrackers = BlaseballFanTrackers()
+    trackers: BlaseballFanTrackers = BlaseballFanTrackers(),
+
+    readOnly: Boolean = false,
+    verified: Boolean = false,
+
+    activeLeagueType: String? = null,
+    activeLeagueID: String? = null
 ) : BlasementFan {
     constructor(payload: BlasementFanDatabasePayload, blasement: TheBlasement, items: List<Pair<EnumBlaseballSnack, Int>?>, bets: List<Triple<KUUID, KUUID, Int>>, trackers: BlaseballFanTrackers) : this(
         blasement,
@@ -188,6 +194,29 @@ class BlasementHostFan(
 
     private var _trackers = trackers
     override val trackers by ::_trackers
+
+    private var _readOnly = readOnly
+    val readOnly by ::_readOnly
+
+    private var _verified = verified
+    val verified by ::_verified
+
+    private var _activeLeagueType = activeLeagueType
+    val activeLeagueType by ::_activeLeagueType
+
+    private var _activeLeagueID = activeLeagueID
+    val activeLeagueID by ::_activeLeagueID
+
+    suspend fun changeLeague(leagueType: String, leagueID: String) {
+        _activeLeagueType = leagueType
+        _activeLeagueID = leagueID
+
+        blasement.client.sql("UPDATE fans SET active_league_type = $1, active_league_id = $2 WHERE fan_id = $3")
+            .bind("$1", leagueType)
+            .bind("$2", leagueID)
+            .bindAs("$3", id)
+            .await()
+    }
 
     private suspend inline fun coins(calculate: (coins: Long) -> Long) = setCoins(calculate(_coins))
     suspend fun setCoins(calculate: (coins: Long) -> Long) = semaphore.withWritePermit { setCoins(calculate(_coins)) }

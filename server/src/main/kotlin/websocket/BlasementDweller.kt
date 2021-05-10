@@ -73,10 +73,10 @@ class BlasementDweller(val blasement: TheBlasement, val format: SerialFormat, va
         println("Received $event from $websocket")
 
         when (event) {
-            is ClientEvent.SubscribeToGame -> blasement.liveData.getLocalGame(event.game)
-                ?.updateLog
-                ?.onEach { schedule -> sendEvent(ServerEvent.GameUpdate(schedule)) }
-                ?.launchIn(websocket)
+//            is ClientEvent.SubscribeToGame -> blasement.liveData.getLocalGame(event.game)
+//                ?.updateLog
+//                ?.onEach { schedule -> sendEvent(ServerEvent.GameUpdate(schedule)) }
+//                ?.launchIn(websocket)
 
 //            is ClientEvent.SubscribeToGlobalFeed -> blasement.globalFeed
 //                .flow
@@ -91,13 +91,13 @@ class BlasementDweller(val blasement: TheBlasement, val format: SerialFormat, va
 //                        .launchIn(websocket)
 //                }
 
-            is ClientEvent.GetDate -> sendEvent(blasement.today().let { (season, day) -> ServerEvent.CurrentDate(season, day) })
-            is ClientEvent.GetTodaysGames -> sendEvent(blasement.today().let { (season, day) -> ServerEvent.GameList(season, day, blasement.gamesToday()) })
-            is ClientEvent.GetTomorrowsGames -> sendEvent(blasement.today().let { (season, day) -> ServerEvent.GameList(season, day + 1, blasement.gamesTomorrow()) })
+//            is ClientEvent.GetDate -> sendEvent(blasement.today().let { (season, day) -> ServerEvent.CurrentDate(season, day) })
+//            is ClientEvent.GetTodaysGames -> sendEvent(blasement.today().let { (season, day) -> ServerEvent.GameList(season, day, blasement.gamesToday()) })
+//            is ClientEvent.GetTomorrowsGames -> sendEvent(blasement.today().let { (season, day) -> ServerEvent.GameList(season, day + 1, blasement.gamesTomorrow()) })
 
             is ClientEvent.GetSelf -> sendEvent(fan?.let { ServerEvent.FanPayload(it.toPayload()) } ?: ServerEvent.Unauthenticated)
 
-            is ClientEvent.CreateNewFan -> {
+/*            is ClientEvent.CreateNewFan -> {
                 val token = HashCashToken(event.hashcashToken)
                 val now = ZonedDateTime.now(Clock.systemUTC())
                 val dateTime = "${now.year.toString().takeLast(2)}${now.monthValue.toString().takeLast(2)}${now.dayOfMonth.toString().takeLast(2)}"
@@ -144,7 +144,7 @@ class BlasementDweller(val blasement: TheBlasement, val format: SerialFormat, va
 
                     sendEvent(ServerEvent.FanPayload(fan.toPayload()))
                 }
-            }
+            }*/
 
             is ClientEvent.BettingReturns -> {
                 blasement.blaseballApi.getGameById(event.onGame).doOnSuccess { game ->

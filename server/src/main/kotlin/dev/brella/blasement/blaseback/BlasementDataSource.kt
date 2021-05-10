@@ -1,13 +1,15 @@
-package dev.brella.blasement
+package dev.brella.blasement.blaseback
 
 import BlaseballFeed
 import TheBlasement
+import UPNUTS_HOST
 import com.soywiz.klock.DateTime
 import com.soywiz.klock.DateTimeTz
 import dev.brella.blasement.common.events.BlaseballFeedEventWithContext
 import dev.brella.blasement.common.events.FanID
 import dev.brella.blasement.common.events.TimeRange
 import dev.brella.kornea.blaseball.BlaseballApi
+import dev.brella.kornea.blaseball.base.common.BLASEBALL_TIME_PATTERN
 import dev.brella.kornea.blaseball.base.common.FeedID
 import dev.brella.kornea.blaseball.base.common.ItemID
 import dev.brella.kornea.blaseball.base.common.ModificationID
@@ -21,6 +23,7 @@ import dev.brella.kornea.blaseball.base.common.beans.BlaseballItem
 import dev.brella.kornea.blaseball.base.common.beans.BlaseballMod
 import dev.brella.kornea.blaseball.base.common.beans.BlaseballSimulationData
 import dev.brella.kornea.blaseball.base.common.beans.BlaseballTribute
+import dev.brella.kornea.blaseball.base.common.json.EventuallyFeedList
 import dev.brella.kornea.errors.common.KorneaResult
 import dev.brella.kornea.errors.common.cast
 import dev.brella.kornea.errors.common.getOrBreak
@@ -30,6 +33,7 @@ import dev.brella.ktornea.common.streamAsResult
 import getJsonArray
 import getString
 import io.ktor.client.*
+import io.ktor.client.features.*
 import io.ktor.client.request.*
 import io.ktor.http.*
 import kotlinx.coroutines.delay
@@ -42,7 +46,7 @@ interface BlasementDataSource {
     val globalFeed: SharedFlow<BlaseballFeedEventWithContext>
 
     suspend fun getFeedByPhase(phase: Int, season: Int): KorneaResult<List<BlaseballFeedEvent>>
-    suspend fun getGlobalFeed(category: Int? = null, limit: Int = 100, type: Int? = null, sort: Int? = null, start: String? = null, upNuts: Map<FeedID, Set<FanID>> = emptyMap(), fanID: FanID? = null): KorneaResult<List<BlaseballFeedEvent>>
+    suspend fun getGlobalFeed(category: Int? = null, limit: Int = 100, type: Int? = null, sort: Int? = null, start: String? = null, fanID: FanID? = null): KorneaResult<List<BlaseballFeedEvent>>
     suspend fun getPlayerFeed(
         id: PlayerID,
         category: Int? = null,
@@ -50,7 +54,6 @@ interface BlasementDataSource {
         type: Int? = null,
         sort: Int? = null,
         start: String? = null,
-        upNuts: Map<FeedID, Set<FanID>> = emptyMap(),
         fanID: FanID? = null
     ): KorneaResult<List<BlaseballFeedEvent>>
 
@@ -61,7 +64,6 @@ interface BlasementDataSource {
         type: Int? = null,
         sort: Int? = null,
         start: String? = null,
-        upNuts: Map<FeedID, Set<FanID>> = emptyMap(),
         fanID: FanID? = null
     ): KorneaResult<List<BlaseballFeedEvent>>
 
@@ -90,85 +92,63 @@ data class BlasementDataSourceWrapper(val blasement: TheBlasement) : BlasementDa
     override val globalFeed: SharedFlow<BlaseballFeedEventWithContext> by _globalFeed::flow
 
     inline val blaseball get() = blasement.blaseballApi
+    inline val http get() = blasement.httpClient
 
     override suspend fun getFeedByPhase(phase: Int, season: Int): KorneaResult<List<BlaseballFeedEvent>> =
         blaseball.getFeedByPhase(phase, season)
 
-    override suspend fun getGlobalFeed(category: Int?, limit: Int, type: Int?, sort: Int?, start: String?, upNuts: Map<FeedID, Set<FanID>>, fanID: FanID?): KorneaResult<List<BlaseballFeedEvent>> =
-        blaseball.getGlobalFeed(category, limit, type, sort, start)
-            .let { result ->
-                if (fanID == null) {
-                    result.map { feedList ->
-                        feedList.map { event ->
-                            upNuts[event.id]?.let { event.nuts += it.size }
-                            event
-                        }
-                    }
-                } else {
-                    result.map { feedList ->
-                        feedList.map { event ->
-                            upNuts[event.id]?.let {
-                                if (fanID in it) event.metadata?.upnut = true
+    override suspend fun getGlobalFeed(category: Int?, limit: Int, type: Int?, sort: Int?, start: String?, fanID: FanID?): KorneaResult<List<BlaseballFeedEvent>> =
+        http.getAsResult<EventuallyFeedList>("$UPNUTS_HOST/feed/global") {
+            parameter("limit", limit)
 
-                                event.nuts += it.size
-                            }
-                            event
-                        }
-                    }
-                }
+            fanID?.let { parameter("player", it.id) }
+
+            if (category != null) parameter("category", category)
+            if (type != null) parameter("type", type)
+            if (start != null) parameter("offset", start)
+            if (sort != null) parameter("sort", sort)
+
+            timeout {
+                socketTimeoutMillis = 60_000L
             }
+        }
+//        blaseball.getGlobalFeed(category, limit, type, sort, start)
 
-    override suspend fun getPlayerFeed(id: PlayerID, category: Int?, limit: Int, type: Int?, sort: Int?, start: String?, upNuts: Map<FeedID, Set<FanID>>, fanID: FanID?): KorneaResult<List<BlaseballFeedEvent>> =
-        blaseball.getPlayerFeed(id, category, limit, type, sort, start)
-            .let { result ->
-                if (fanID == null) {
-                    result.map { feedList ->
-                        feedList.map { event ->
-                            upNuts[event.id]?.let { event.nuts += it.size }
-                            event
-                        }
-                    }
-                } else {
-                    result.map { feedList ->
-                        feedList.map { event ->
-                            upNuts[event.id]?.let {
-                                upNuts[event.id]?.let {
-                                    if (fanID in it) event.metadata?.upnut = true
+    override suspend fun getPlayerFeed(id: PlayerID, category: Int?, limit: Int, type: Int?, sort: Int?, start: String?, fanID: FanID?): KorneaResult<List<BlaseballFeedEvent>> =
+        http.getAsResult<EventuallyFeedList>("$UPNUTS_HOST/feed/player") {
+            parameter("limit", limit)
+            parameter("id", id.id)
 
-                                    event.nuts += it.size
-                                }
-                            }
-                            event
-                        }
-                    }
-                }
+            fanID?.let { parameter("player", it.id) }
+
+            if (category != null) parameter("category", category)
+            if (type != null) parameter("type", type)
+            if (start != null) parameter("offset", start)
+            if (sort != null) parameter("sort", sort)
+
+            timeout {
+                socketTimeoutMillis = 60_000L
             }
+        }
+//        blaseball.getPlayerFeed(id, category, limit, type, sort, start)
 
-    override suspend fun getTeamFeed(id: TeamID, category: Int?, limit: Int, type: Int?, sort: Int?, start: String?, upNuts: Map<FeedID, Set<FanID>>, fanID: FanID?): KorneaResult<List<BlaseballFeedEvent>> =
-        blaseball.getTeamFeed(id, category, limit, type, sort, start)
-            .let { result ->
-                if (fanID == null) {
-                    result.map { feedList ->
-                        feedList.map { event ->
-                            upNuts[event.id]?.let { event.nuts += it.size }
-                            event
-                        }
-                    }
-                } else {
-                    result.map { feedList ->
-                        feedList.map { event ->
-                            upNuts[event.id]?.let {
-                                upNuts[event.id]?.let {
-                                    if (fanID in it) event.metadata?.upnut = true
+    override suspend fun getTeamFeed(id: TeamID, category: Int?, limit: Int, type: Int?, sort: Int?, start: String?, fanID: FanID?): KorneaResult<List<BlaseballFeedEvent>> =
+        http.getAsResult<EventuallyFeedList>("$UPNUTS_HOST/feed/team") {
+            parameter("limit", limit)
+            parameter("id", id.id)
 
-                                    event.nuts += it.size
-                                }
-                            }
-                            event
-                        }
-                    }
-                }
+            fanID?.let { parameter("player", it.id) }
+
+            if (category != null) parameter("category", category)
+            if (type != null) parameter("type", type)
+            if (start != null) parameter("offset", start)
+            if (sort != null) parameter("sort", sort)
+
+            timeout {
+                socketTimeoutMillis = 60_000L
             }
+        }
+//        blaseball.getTeamFeed(id, category, limit, type, sort, start)
 
     override suspend fun getIdolBoard(): KorneaResult<BlaseballIdols> =
         blaseball.getIdolBoard()

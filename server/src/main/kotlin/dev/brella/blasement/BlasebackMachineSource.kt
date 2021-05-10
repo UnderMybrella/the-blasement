@@ -2,11 +2,14 @@ package dev.brella.blasement
 
 import CHRONICLER_HOST
 import UPNUTS_HOST
+import com.soywiz.klock.DateTime
 import com.soywiz.klock.DateTimeTz
+import com.soywiz.klock.TimeSpan
 import com.soywiz.klock.minutes as klockMinutes
 import com.soywiz.klock.hours as klockHours
 import com.soywiz.klock.milliseconds as klockMilliseconds
 import com.soywiz.klock.parse
+import dev.brella.blasement.blaseback.BlasementDataSource
 import dev.brella.blasement.common.events.BlaseballFeedEventWithContext
 import dev.brella.blasement.common.events.FanID
 import dev.brella.blasement.common.events.TimeRange
@@ -47,6 +50,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.isActive
+import kotlinx.serialization.SerializationException
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -85,7 +89,17 @@ abstract class BlasebackMachineSource(val http: HttpClient, val blaseball: Blase
                         var json = baseJson
 
                         while (isActive) {
-                            emit(format.encodeToString(json.getValue("data")))
+                            for (i in 0 until 5) {
+                                val jsonStr = Json.encodeToString(json.getValue("data"))
+                                try {
+                                    Json.decodeFromString<JsonObject>(jsonStr)
+                                    emit(jsonStr)
+                                    break
+                                } catch (th: SerializationException) {
+//                                    println("Str failed $i times, trying again")
+                                    delay(10)
+                                }
+                            }
 
                             val validTo = json["validTo"]?.jsonPrimitive?.contentOrNull
 
@@ -94,7 +108,7 @@ abstract class BlasebackMachineSource(val http: HttpClient, val blaseball: Blase
 
                                 http.getAsResult<JsonObject>("https://api.sibr.dev/chronicler/v2/entities") {
                                     parameter("type", "stream")
-                                    parameter("at", validTo)
+                                    parameter("at", BLASEBALL_TIME_PATTERN.format(now()))
                                 }.doOnSuccess { response ->
                                     response.getJsonArray("items")
                                         .firstOrNull()?.jsonObject
@@ -122,8 +136,15 @@ abstract class BlasebackMachineSource(val http: HttpClient, val blaseball: Blase
             parameter("time", BLASEBALL_TIME_PATTERN.format(now()))
         }.map { list -> list.map { it.toBlaseball() } }
 
-    override suspend fun getGlobalFeed(category: Int?, limit: Int, type: Int?, sort: Int?, start: String?, upNuts: Map<FeedID, Set<FanID>>, fanID: FanID?): KorneaResult<List<BlaseballFeedEvent>> {
-        val result = http.getAsResult<EventuallyFeedList>("$UPNUTS_HOST/feed/global") {
+    override suspend fun getGlobalFeed(
+        category: Int?,
+        limit: Int,
+        type: Int?,
+        sort: Int?,
+        start: String?,
+        fanID: FanID?
+    ): KorneaResult<List<BlaseballFeedEvent>> =
+        http.getAsResult<EventuallyFeedList>("$UPNUTS_HOST/feed/global") {
 //            parameter("after", (start?.let(BLASEBALL_TIME_PATTERN::parse) ?: now()).utc.unixMillisLong / 1000)
 //            parameter("before", now().utc.unixMillisLong / 1000)
 
@@ -141,32 +162,6 @@ abstract class BlasebackMachineSource(val http: HttpClient, val blaseball: Blase
                 socketTimeoutMillis = 60_000L
             }
         }
-        /*.let { result ->
-            if (fanID == null) {
-                result.map { feedList ->
-                    feedList.map { event ->
-                        upNuts[event.id]?.let { event.nuts += it.size }
-                        event
-                    }
-                }
-            } else {
-                result.map { feedList ->
-                    feedList.map { event ->
-                        upNuts[event.id]?.let {
-                            if (fanID in it) event.metadata?.upnut = true
-
-                            event.nuts += it.size
-                        }
-                        event
-                    }
-                }
-            }
-        }
-
-    if (sort == 2 || sort == 3) return result.map { list -> list.sortedByDescending(BlaseballFeedEvent::nuts) }*/
-
-        return result
-    }
 
     override suspend fun getPlayerFeed(
         id: PlayerID,
@@ -175,10 +170,9 @@ abstract class BlasebackMachineSource(val http: HttpClient, val blaseball: Blase
         type: Int?,
         sort: Int?,
         start: String?,
-        upNuts: Map<FeedID, Set<FanID>>,
         fanID: FanID?
-    ): KorneaResult<List<BlaseballFeedEvent>> {
-        val result = http.getAsResult<EventuallyFeedList>("$UPNUTS_HOST/feed/player") {
+    ): KorneaResult<List<BlaseballFeedEvent>> =
+        http.getAsResult<EventuallyFeedList>("$UPNUTS_HOST/feed/player") {
 //            parameter("after", (start?.let(BLASEBALL_TIME_PATTERN::parse) ?: now()).utc.unixMillisLong / 1000)
 //            parameter("before", now().utc.unixMillisLong / 1000)
             parameter("time", BLASEBALL_TIME_PATTERN.format(now()))
@@ -199,33 +193,6 @@ abstract class BlasebackMachineSource(val http: HttpClient, val blaseball: Blase
             }
         }
 
-        /*.let { result ->
-        if (fanID == null) {
-            result.map { feedList ->
-                feedList.map { event ->
-                    upNuts[event.id]?.let { event.nuts += it.size }
-                    event
-                }
-            }
-        } else {
-            result.map { feedList ->
-                feedList.map { event ->
-                    upNuts[event.id]?.let {
-                        if (fanID in it) event.metadata?.upnut = true
-
-                        event.nuts += it.size
-                    }
-                    event
-                }
-            }
-        }
-    }
-
-    if (sort == 2 || sort == 3) return result.map { list -> list.sortedByDescending(BlaseballFeedEvent::nuts) }*/
-
-        return result
-    }
-
     override suspend fun getTeamFeed(
         id: TeamID,
         category: Int?,
@@ -233,10 +200,9 @@ abstract class BlasebackMachineSource(val http: HttpClient, val blaseball: Blase
         type: Int?,
         sort: Int?,
         start: String?,
-        upNuts: Map<FeedID, Set<FanID>>,
         fanID: FanID?
-    ): KorneaResult<List<BlaseballFeedEvent>> {
-        val result = http.getAsResult<EventuallyFeedList>("$UPNUTS_HOST/feed/team") {
+    ): KorneaResult<List<BlaseballFeedEvent>> =
+        http.getAsResult<EventuallyFeedList>("$UPNUTS_HOST/feed/team") {
 //            parameter("after", (start?.let(BLASEBALL_TIME_PATTERN::parse) ?: now()).utc.unixMillisLong / 1000)
 //            parameter("before", now().utc.unixMillisLong / 1000)
 
@@ -260,33 +226,6 @@ abstract class BlasebackMachineSource(val http: HttpClient, val blaseball: Blase
 //                else -> parameter("sortorder", sort)
             }
         }
-
-        /*.let { result ->
-        if (fanID == null) {
-            result.map { feedList ->
-                feedList.map { event ->
-                    upNuts[event.id]?.let { event.nuts += it.size }
-                    event
-                }
-            }
-        } else {
-            result.map { feedList ->
-                feedList.map { event ->
-                    upNuts[event.id]?.let {
-                        if (fanID in it) event.metadata?.upnut = true
-
-                        event.nuts += it.size
-                    }
-                    event
-                }
-            }
-        }
-    }
-
-    if (sort == 2 || sort == 3) return result.map { list -> list.sortedByDescending(BlaseballFeedEvent::nuts) }*/
-
-        return result
-    }
 
     override suspend
     fun getIdolBoard(): KorneaResult<BlaseballIdols> =
@@ -328,19 +267,21 @@ abstract class BlasebackMachineSource(val http: HttpClient, val blaseball: Blase
 }
 
 @OptIn(ExperimentalTime::class)
-class BlasebackMachineAccelerated(http: HttpClient, blaseball: BlaseballApi, json: Json, from: String, to: String, val ratePerSecond: Duration) : BlasebackMachineSource(http, blaseball, json, from, to) {
+class BlasebackMachineAccelerated(http: HttpClient, blaseball: BlaseballApi, json: Json, from: String, to: String, val ratePerSecond: Duration, startTime: TimeSpan? = null) : BlasebackMachineSource(http, blaseball, json, from, to) {
     companion object {
-        fun collections(http: HttpClient, blaseball: BlaseballApi, json: Json, ratePerSecond: Duration) =
-            BlasebackMachineAccelerated(http, blaseball, json, "2021-04-19T00:00:00Z", "2021-04-26T00:00:00Z", ratePerSecond)
+        fun collections(http: HttpClient, blaseball: BlaseballApi, json: Json, ratePerSecond: Duration, startTime: TimeSpan? = null) =
+            BlasebackMachineAccelerated(http, blaseball, json, "2021-04-19T00:00:00Z", "2021-04-26T00:00:00Z", ratePerSecond, startTime)
 
-        fun massProduction(http: HttpClient, blaseball: BlaseballApi, json: Json, ratePerSecond: Duration) =
-            BlasebackMachineAccelerated(http, blaseball, json, "2021-04-12T00:00:00Z", "2021-04-19T00:00:00Z", ratePerSecond)
+        fun massProduction(http: HttpClient, blaseball: BlaseballApi, json: Json, ratePerSecond: Duration, startTime: TimeSpan? = null) =
+            BlasebackMachineAccelerated(http, blaseball, json, "2021-04-12T00:00:00Z", "2021-04-19T00:00:00Z", ratePerSecond, startTime)
 
-        fun liveBait(http: HttpClient, blaseball: BlaseballApi, json: Json, ratePerSecond: Duration) =
-            BlasebackMachineAccelerated(http, blaseball, json, "2021-04-05T00:00:00Z", "2021-04-12T00:00:00Z", ratePerSecond)
+        fun liveBait(http: HttpClient, blaseball: BlaseballApi, json: Json, ratePerSecond: Duration, startTime: TimeSpan? = null) =
+            BlasebackMachineAccelerated(http, blaseball, json, "2021-04-05T00:00:00Z", "2021-04-12T00:00:00Z", ratePerSecond, startTime)
+
+        inline fun startAtDay(day: Int) = (1.klockHours * day)
     }
 
-    val beginning = BLASEBALL_TIME_PATTERN.parse(from) + 24.klockHours + 12.klockHours + 3.klockHours + 20.klockMinutes
+    val beginning = BLASEBALL_TIME_PATTERN.parse(from) + (startTime ?: 0.klockMinutes) //12.klockHours + 3.klockHours + startAtDay(23)
 
     val start = TimeSource.Monotonic.markNow()
     override val liveFeedFlow: SharedFlow<String> = launchLiveFeedFlow()
@@ -350,6 +291,43 @@ class BlasebackMachineAccelerated(http: HttpClient, blaseball: BlaseballApi, jso
 
     override suspend fun wait(until: DateTimeTz) {
         delay((((until - now()).seconds / ratePerSecond.toDouble(DurationUnit.SECONDS)) * 1_000L).roundToLong())
+    }
+}
+
+@OptIn(ExperimentalTime::class)
+class BlasebackMachineConcurrent(http: HttpClient, blaseball: BlaseballApi, json: Json, from: String, to: String) : BlasebackMachineSource(http, blaseball, json, from, to) {
+    companion object {
+        fun collections(http: HttpClient, blaseball: BlaseballApi, json: Json) =
+            BlasebackMachineConcurrent(http, blaseball, json, "2021-04-19T00:00:00Z", "2021-04-26T00:00:00Z")
+
+        fun massProduction(http: HttpClient, blaseball: BlaseballApi, json: Json) =
+            BlasebackMachineConcurrent(http, blaseball, json, "2021-04-12T00:00:00Z", "2021-04-19T00:00:00Z")
+
+        fun liveBait(http: HttpClient, blaseball: BlaseballApi, json: Json) =
+            BlasebackMachineConcurrent(http, blaseball, json, "2021-04-05T00:00:00Z", "2021-04-12T00:00:00Z")
+    }
+
+    val beginning = BLASEBALL_TIME_PATTERN.parse(from)
+
+    val start = TimeSource.Monotonic.markNow()
+    override val liveFeedFlow: SharedFlow<String> = launchLiveFeedFlow()
+
+    val startOfWeekShift = DateTime.now().let { utc -> utc.utc - utc.time.encoded - (24.klockHours * (utc.dayOfWeekInt - 1)) }
+
+    override fun now(): DateTimeTz =
+        beginning + (DateTime.now().utc - startOfWeekShift)
+
+    override suspend fun wait(until: DateTimeTz) {
+        delay((until - now()).millisecondsLong)
+    }
+
+    init {
+        println(startOfWeekShift)
+        println(now())
+        println((DateTime.now().utc - startOfWeekShift).hours)
+        println(DateTime.now().utc)
+        println(beginning)
+        println(beginning + (DateTime.now().utc - startOfWeekShift))
     }
 }
 

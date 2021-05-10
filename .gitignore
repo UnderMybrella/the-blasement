@@ -79,3 +79,4 @@ build/
 .lastid
 application.conf
 r2dbc.json
+blasement.json

@@ -61,7 +61,7 @@ data class BlaseballFanFrontendPayload(
     val email: String?,
     val appleId: String?,
     val googleId: String?,
-    val facebookId: String?,
+    val discordId: String?,
     val name: String?,
     val password: String?,
     val coins: Long,

@@ -11,4 +11,6 @@
     <root level="info">
         <appender-ref ref="STDOUT" />
     </root>
+
+    <logger name="B2" level="debug" additivity="true" />
 </configuration>

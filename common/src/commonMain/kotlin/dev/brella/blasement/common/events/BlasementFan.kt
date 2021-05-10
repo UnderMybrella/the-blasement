@@ -137,7 +137,7 @@ interface BlasementFan {
     val email: String?
     val appleId: String?
     val googleId: String?
-    val facebookId: String?
+    val discordId: String?
 
     val name: String?
     val password: String?
@@ -206,7 +206,7 @@ inline fun BlasementFan.toPayload() =
         email,
         appleId,
         googleId,
-        facebookId,
+        discordId,
         name,
         password,
         coins,
@@ -232,10 +232,10 @@ inline fun BlasementFan.toPayload() =
 inline fun BlasementFan.toFrontendPayload() =
     BlaseballFanFrontendPayload(
         id,
-        email,
+        email ?: appleId?.plus("@apple.com") ?: googleId?.plus("@google.com") ?: discordId?.plus("@discord.com"),
         appleId,
         googleId,
-        facebookId,
+        discordId,
         name,
         password,
         coins,
@@ -350,7 +350,11 @@ data class BlasementFanDatabasePayload(
     val inventorySpace: Int,
     val spread: List<Int>,
     val coffee: Int?,
-    val favNumber: Int?
+    val favNumber: Int?,
+    val readOnly: Boolean = false,
+    val verified: Boolean = false,
+    val activeLeagueType: String? = null,
+    val activeLeagueID: String? = null
 )
 
 @Serializable
