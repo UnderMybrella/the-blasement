@@ -26,6 +26,20 @@ import kotlin.math.roundToInt
 data class BlaseballBet(val team: TeamID, val bet: Int)
 
 @Serializable
+enum class EnumChangeIdolFail {
+    NOT_ENOUGH_COINS,
+    ALREADY_IDOL,
+    GAME_IN_PROGRESS
+}
+
+@Serializable
+enum class EnumChangeTeamFail {
+    NO_FLUTE,
+    ALREADY_FAVOURITE_TEAM,
+    GAME_IN_PROGRESS
+}
+
+@Serializable
 enum class EnumBegFail {
     TOO_MANY_COINS,
     NO_BREAD_CRUMBS

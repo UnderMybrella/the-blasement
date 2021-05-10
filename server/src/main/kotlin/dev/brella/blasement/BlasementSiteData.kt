@@ -170,9 +170,9 @@ class BlasementSiteData(val http: HttpClient, val source: BlasementDataSource, v
 
                 newIndexHtml?.let { (_, response) ->
                     _indexHtml.value = response.decodeToString()
-                        .replace("\"https://d35iw2jmbg6ut8.cloudfront.net/static/js/main\\..+\\.chunk\\.js\"".toRegex(), "\"main.js\"")
-                        .replace("\"https://d35iw2jmbg6ut8.cloudfront.net/static/js/2\\..+\\.chunk\\.js\"".toRegex(), "\"2.js\"")
-                        .replace("\"https://d35iw2jmbg6ut8.cloudfront.net/static/css/main\\..+\\.chunk\\.css\"".toRegex(), "\"main.css\"")
+                        .replace("\"https://d35iw2jmbg6ut8.cloudfront.net/static/js/main\\..+\\.chunk\\.js\"".toRegex(), "\"$base/main.js\"")
+                        .replace("\"https://d35iw2jmbg6ut8.cloudfront.net/static/js/2\\..+\\.chunk\\.js\"".toRegex(), "\"$base/2.js\"")
+                        .replace("\"https://d35iw2jmbg6ut8.cloudfront.net/static/css/main\\..+\\.chunk\\.css\"".toRegex(), "\"$base/main.css\"")
                         .encodeToByteArray()
 //                        .compressGz()
                 }

@@ -10,6 +10,8 @@ import com.soywiz.klock.parse
 import dev.brella.blasement.common.events.BlaseballFeedEventWithContext
 import dev.brella.blasement.common.events.FanID
 import dev.brella.blasement.common.events.TimeRange
+import dev.brella.blasement.utils.chroniclerEntity
+import dev.brella.blasement.utils.chroniclerEntityList
 import dev.brella.kornea.blaseball.BlaseballApi
 import dev.brella.kornea.blaseball.base.common.BLASEBALL_TIME_PATTERN
 import dev.brella.kornea.blaseball.base.common.FeedID
@@ -50,6 +52,7 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.decodeFromJsonElement
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlin.coroutines.CoroutineContext
@@ -102,85 +105,6 @@ abstract class BlasebackMachineSource(val http: HttpClient, val blaseball: Blase
                     }
             }
         }.shareIn(BlasebackMachineSource, SharingStarted.Eagerly, 1)
-
-    suspend inline fun <reified T> chroniclerV2(type: String, at: String = BLASEBALL_TIME_PATTERN.format(now()), builder: HttpRequestBuilder.() -> Unit = {}): KorneaResult<T> =
-        http.getAsResult<JsonObject>("$CHRONICLER_HOST/v2/entities") {
-            parameter("type", type)
-            parameter("at", at)
-
-            builder()
-        }.flatMap { json ->
-            try {
-                KorneaResult.successOrEmpty(
-                    json.getJsonArray("items")
-                        .firstOrNull()
-                        ?.jsonObject
-                        ?.get("data")
-                        ?.let { this.format.decodeFromString(this.format.encodeToString(it)) }
-                )
-            } catch (th: Throwable) {
-                KorneaResult.thrown(th)
-            }
-        }
-
-    suspend inline fun <reified T> chroniclerV2List(type: String, at: String = BLASEBALL_TIME_PATTERN.format(now()), builder: HttpRequestBuilder.() -> Unit = {}): KorneaResult<List<T>> =
-        http.getAsResult<JsonObject>("$CHRONICLER_HOST/v2/entities") {
-            parameter("type", type)
-            parameter("at", at)
-
-            builder()
-        }.flatMap { json ->
-            try {
-                KorneaResult.successOrEmpty(
-                    json.getJsonArray("items")
-                        .mapNotNull { element -> element.jsonObject["data"]?.let { this.format.decodeFromString(this.format.encodeToString(it)) } }
-                )
-            } catch (th: Throwable) {
-                KorneaResult.thrown(th)
-            }
-        }
-
-    @OptIn(ExperimentalTime::class)
-    suspend inline fun <reified T> chroniclerV2Pagination(type: String, at: String = BLASEBALL_TIME_PATTERN.format(now()), delay: Duration = 5.seconds, limit: Int = 5, maximumDelay: Duration = 5.seconds): KorneaResult<Flow<T>> =
-        http.getAsResult<JsonObject>("$CHRONICLER_HOST/v2/entities") {
-            parameter("type", type)
-            parameter("at", at)
-        }.flatMap { json ->
-            try {
-                KorneaResult.successOrEmpty(
-                    json.getJsonArray("items")
-                        .firstOrNull()
-                        ?.jsonObject
-                        ?.let { baseJson ->
-                            flow<T> {
-                                var json = baseJson
-
-                                repeat(limit) {
-                                    emit(format.decodeFromString(format.encodeToString(json.getValue("data"))))
-
-                                    val validTo = json["validTo"]?.jsonPrimitive?.contentOrNull
-
-                                    if (validTo != null) {
-                                        wait(BLASEBALL_TIME_PATTERN.parse(validTo))
-
-                                        http.getAsResult<JsonObject>("https://api.sibr.dev/chronicler/v2/entities") {
-                                            parameter("type", type)
-                                            parameter("at", validTo)
-                                        }.doOnSuccess { response ->
-                                            response.getJsonArray("items")
-                                                .firstOrNull()?.jsonObject
-                                                ?.let { json = it }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                )
-            } catch (th: Throwable) {
-                KorneaResult.thrown(th)
-            }
-        }
 
     @OptIn(ExperimentalTime::class)
     private val _globalFeed by lazy { BlaseballFeed.GlobalMachine(format, http, Duration.seconds(1), this::now, validRange, BlasebackMachineSource) }
@@ -260,8 +184,7 @@ abstract class BlasebackMachineSource(val http: HttpClient, val blaseball: Blase
             parameter("time", BLASEBALL_TIME_PATTERN.format(now()))
             parameter("limit", limit)
 
-            if (sort == 2 || sort == 3) parameter("id", id.id)
-            else parameter("playerTags", id.id)
+            parameter("id", id.id)
 
             if (category != null) parameter("category", category)
             if (type != null) parameter("type", type)
@@ -319,8 +242,8 @@ abstract class BlasebackMachineSource(val http: HttpClient, val blaseball: Blase
 
             parameter("time", BLASEBALL_TIME_PATTERN.format(now()))
             parameter("limit", limit)
-            if (sort == 2 || sort == 3) parameter("id", id.id)
-            else parameter("teamTags", id.id)
+            parameter("id", id.id)
+//            else parameter("teamTags", id.id)
 
             if (category != null) parameter("category", category)
             if (type != null) parameter("type", type)
@@ -367,11 +290,11 @@ abstract class BlasebackMachineSource(val http: HttpClient, val blaseball: Blase
 
     override suspend
     fun getIdolBoard(): KorneaResult<BlaseballIdols> =
-        chroniclerV2("idols")
+        http.chroniclerEntity("idols", at = BLASEBALL_TIME_PATTERN.format(now()))
 
     override suspend
     fun getHallOfFlamePlayers(): KorneaResult<List<BlaseballTribute>> =
-        chroniclerV2("tributes")
+        http.chroniclerEntity("tributes", at = BLASEBALL_TIME_PATTERN.format(now()))
 
     override suspend
     fun getBloodTypes(bloodIDs: Iterable<String>): KorneaResult<List<String>> = blaseball.getBloodTypes(bloodIDs)
@@ -389,15 +312,15 @@ abstract class BlasebackMachineSource(val http: HttpClient, val blaseball: Blase
 
     override suspend
     fun getPlayers(playerIDs: Iterable<PlayerID>): KorneaResult<List<BlaseballDatabasePlayer>> =
-        chroniclerV2List("player") { parameter("id", playerIDs.joinParams()) }
+        http.chroniclerEntityList("player", at = BLASEBALL_TIME_PATTERN.format(now())) { parameter("id", playerIDs.joinParams()) }
 
     override suspend
     fun getGlobalEvents(): KorneaResult<List<BlaseballGlobalEvent>> =
-        chroniclerV2("globalevents")
+        http.chroniclerEntity("globalevents", at = BLASEBALL_TIME_PATTERN.format(now()))
 
     override suspend
     fun getSimulationData(): KorneaResult<BlaseballSimulationData> =
-        chroniclerV2("sim")
+        http.chroniclerEntity("sim", at = BLASEBALL_TIME_PATTERN.format(now()))
 
     override suspend
     fun getLiveDataStream(): KorneaResult<Flow<String>> =

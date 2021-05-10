@@ -141,6 +141,10 @@ sealed class ServerEvent {
         data class GainedMoney(val amount: Int, val reason: EnumGainedMoneyReason): FanActionResponse()
     }
 
+    @Serializable
+    @SerialName("TOAST")
+    data class Toast(val toast: String, val time: Long): ServerEvent()
+
     @OptIn(InternalSerializationApi::class)
     open fun serialise(encoder: CompositeEncoder, descriptor: SerialDescriptor) {
         encoder.encodeSerializableElement(descriptor, 1, this::class.serializer() as KSerializer<ServerEvent>, this)

@@ -5,3 +5,6 @@ import kotlinx.serialization.Serializable
 
 @Serializable
 data class BlaseballSetFavouriteTeamPayload(val teamId: TeamID)
+
+@Serializable
+data class BlaseballUpdateFavouriteTeamPayload(val newTeamId: TeamID, val teamName: String)

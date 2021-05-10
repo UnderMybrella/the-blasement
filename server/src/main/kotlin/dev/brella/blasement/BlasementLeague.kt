@@ -38,7 +38,6 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.json.buildJsonArray
 import redirectInternally
 import respond
-import respondJsonArray
 import respondJsonObject
 import respondOnFailure
 import set
@@ -51,9 +50,7 @@ import io.jsonwebtoken.JwtException
 import io.jsonwebtoken.MissingClaimException
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
-import kotlinx.coroutines.reactive.awaitFirstOrNull
 import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.add
 import kotlinx.serialization.json.buildJsonObject
@@ -332,9 +329,14 @@ class BlasementLeague(val blasement: TheBlasement, val client: HttpClient, val s
         }
 
         post("/chooseIdol") {
+            val fan = call.fan ?: return@post call.respondJsonObject(HttpStatusCode.Unauthorized) {
+                this["error"] = "Invalid auth token."
+            }
+
             val idol = call.receive<BlaseballChooseIdolPayload>()
 
-            println("Choosing Idol: $idol")
+            //Check if games are running
+            fan.setIdol { idol.playerId }
 
             call.respond(HttpStatusCode.OK, EmptyContent)
         }
@@ -353,6 +355,26 @@ class BlasementLeague(val blasement: TheBlasement, val client: HttpClient, val s
             fan.setFavouriteTeam { team.teamId }
 
             call.respond(HttpStatusCode.NoContent, EmptyContent)
+        }
+        post("/updateFavoriteTeam") {
+            val fan = call.fan ?: return@post call.respondJsonObject(HttpStatusCode.Unauthorized) {
+                this["error"] = "Invalid auth token."
+            }
+
+            val team = call.receive<BlaseballUpdateFavouriteTeamPayload>()
+
+            when (fan.changeTeam(team.newTeamId).second) {
+                EnumChangeTeamFail.NO_FLUTE -> call.respondJsonObject(HttpStatusCode.BadRequest) {
+                    this["error"] = "No Flutes in your inventory."
+                }
+                EnumChangeTeamFail.ALREADY_FAVOURITE_TEAM -> call.respondJsonObject(HttpStatusCode.BadRequest) {
+                    this["error"] = "${team.teamName} is already your favourite team."
+                }
+                EnumChangeTeamFail.GAME_IN_PROGRESS -> call.respondJsonObject(HttpStatusCode.BadRequest) {
+                    this["error"] = "Cannot change team while game is in progress"
+                }
+                null -> call.respond(HttpStatusCode.NoContent, EmptyContent)
+            }
         }
 
         post("/upNut") {
@@ -380,14 +402,28 @@ class BlasementLeague(val blasement: TheBlasement, val client: HttpClient, val s
                     this["message"] = "You Upshelled an event."
                 }
             }.respondOnFailure(call)
-//
-//            val existing = upNuts.computeIfAbsent(payload.eventId) { HashSet() }
-//            if (fanID in existing) return@post call.respondJsonObject(HttpStatusCode.BadRequest) {
-//                this["error"] = "You've already Upshelled that event."
-//            }
-//
-//
-//            existing.add(fanID)
+        }
+        post("/eatADangPeanut") {
+            val payload = call.receive<BlaseballEatADangNutPayload>()
+
+            val fan = call.fan ?: return@post call.respondJsonObject(HttpStatusCode.Unauthorized) {
+                this["error"] = "Unauthorized"
+            }
+
+            val existingPeanuts = fan.inventory[EnumBlaseballSnack.PEANUTS] ?: 0
+            val eaten = payload.amount
+
+            if (existingPeanuts < eaten) return@post call.respondJsonObject(HttpStatusCode.BadRequest) {
+                this["error"] = "You don't have enough Peanuts."
+            } else if (eaten <= 0) return@post call.respondJsonObject(HttpStatusCode.BadRequest) {
+                this["error"] = "Invalid Peanut count."
+            }
+
+//            fans[fanID] = fan.copy(peanutsEaten = fan.peanutsEaten + eaten, snacks = fan.snacks.copy(peanuts = existingPeanuts - eaten))
+//            fan.peanutsEaten
+            fan.removeItemQuantity(EnumBlaseballSnack.PEANUTS) { eaten }
+
+            call.respond(HttpStatusCode.OK, EmptyContent)
         }
 
         post("/buyUnlockShop") {
@@ -413,28 +449,28 @@ class BlasementLeague(val blasement: TheBlasement, val client: HttpClient, val s
                 }
             }
         }
-
-        post("/eatADangPeanut") {
-            val payload = call.receive<BlaseballEatADangNutPayload>()
-
+        post("/buyUnlockElection") {
             val fan = call.fan ?: return@post call.respondJsonObject(HttpStatusCode.Unauthorized) {
-                this["error"] = "Unauthorized"
+                this["error"] = "Invalid auth token."
             }
 
-            val existingPeanuts = fan.inventory[EnumBlaseballSnack.PEANUTS] ?: 0
-            val eaten = payload.amount
+            //*Technically*, this responds with a 200 every time - however, it also takes 20 coins from the player even if they have the shop unlocked
+            //TODO: Compat mode?
+            //NOTE: Possible race condition?
+            val (_, error) = fan.purchaseVotingRights()
 
-            if (existingPeanuts < eaten) return@post call.respondJsonObject(HttpStatusCode.BadRequest) {
-                this["error"] = "You don't have enough Peanuts."
-            } else if (eaten <= 0) return@post call.respondJsonObject(HttpStatusCode.BadRequest) {
-                this["error"] = "Invalid Peanut count."
+            when (error) {
+                null -> call.respondJsonObject {
+                    this["message"] = "Voting Rights Unlocked"
+                }
+
+                EnumUnlockFail.NOT_ENOUGH_COINS -> call.respondJsonObject(HttpStatusCode.BadRequest) {
+                    this["error"] = "Not Enough Coins"
+                }
+                EnumUnlockFail.ALREADY_UNLOCKED -> call.respondJsonObject(HttpStatusCode.BadRequest) {
+                    this["error"] = "Voting Rights Already Unlocked"
+                }
             }
-
-//            fans[fanID] = fan.copy(peanutsEaten = fan.peanutsEaten + eaten, snacks = fan.snacks.copy(peanuts = existingPeanuts - eaten))
-//            fan.peanutsEaten
-            fan.removeItemQuantity(EnumBlaseballSnack.PEANUTS) { eaten }
-
-            call.respond(HttpStatusCode.OK, EmptyContent)
         }
 
         post("/updateProfile") {
@@ -443,9 +479,6 @@ class BlasementLeague(val blasement: TheBlasement, val client: HttpClient, val s
             }
 
             val payload = call.receive<BlaseballUpdateProfilePayload>()
-
-//            fan.favNumber = payload.favNumber
-//            fan.coffee = payload.coffee
 
             fan.setFavNumber { payload.favNumber }
             fan.setCoffee { payload.coffee }
@@ -630,8 +663,8 @@ class BlasementLeague(val blasement: TheBlasement, val client: HttpClient, val s
 
         get("/players") {
             source.getPlayers(
-                call.parameters.getAll("ids")?.map(::PlayerID)
-                ?: call.parameters["id"]?.let(::listOf)?.map(::PlayerID)
+                call.parameters.getAll("ids")?.flatMap { it.split(',') }?.map(::PlayerID)
+                ?: call.parameters["id"]?.let(::listOf)?.flatMap { it.split(',') }?.map(::PlayerID)
                 ?: emptyList()
             ).respond(call)
         }
@@ -690,13 +723,14 @@ class BlasementLeague(val blasement: TheBlasement, val client: HttpClient, val s
 
             get("/team") {
                 try {
+                    val parameters = call.request.queryParameters
                     source.getTeamFeed(
-                        id = TeamID(call.parameters.getOrFail("id")),
-                        category = call.parameters["category"]?.toIntOrNull(),
-                        limit = call.parameters["limit"]?.toIntOrNull() ?: 100,
-                        type = call.parameters["type"]?.toIntOrNull(),
-                        sort = call.parameters["sort"]?.toIntOrNull(),
-                        start = call.parameters["start"],
+                        id = TeamID(parameters.getOrFail("id")),
+                        category = parameters["category"]?.toIntOrNull(),
+                        limit = parameters["limit"]?.toIntOrNull() ?: 100,
+                        type = parameters["type"]?.toIntOrNull(),
+                        sort = parameters["sort"]?.toIntOrNull(),
+                        start = parameters["start"],
                         upNuts = upNuts,
                         fanID = call.fan?.id
                     ).respond(call)
@@ -750,7 +784,7 @@ class BlasementLeague(val blasement: TheBlasement, val client: HttpClient, val s
     }.launchIn(blasement)
 
     val bettingRewards = globalEventFeed.onGameEnd.onEach { event ->
-        println("Game Ending: ${event.gameStep.id} (${event.gameStep.homeTeamName} vs ${event.gameStep.awayTeamName}; ${event.winner} won)")
+//        println("Game Ending: ${event.gameStep.id} (${event.gameStep.homeTeamName} vs ${event.gameStep.awayTeamName}; ${event.winner} won)")
         val gameID = event.gameStep.id
         val winner = event.winner
 
@@ -780,6 +814,7 @@ class BlasementLeague(val blasement: TheBlasement, val client: HttpClient, val s
 
     val popcornRewards = globalEventFeed.onGameEnd.onEach { event ->
         val winner = event.winner
+        val eventTime = event.event.created.utc.unixMillisLong
 
         fans.forEach { (_, fan) ->
             if (fan.favouriteTeam == winner) {
@@ -789,12 +824,14 @@ class BlasementLeague(val blasement: TheBlasement, val client: HttpClient, val s
 
                 fan.setCoins { it + coinPayout }
                 fan.fanEvents.emit(ServerEvent.FanActionResponse.GainedMoney(coinPayout, EnumGainedMoneyReason.POPCORN))
+                fan.addToast("You earned $coinPayout coins from 1 {tnn}${winner} win.", eventTime)
             }
         }
     }.launchIn(blasement)
 
     val stalePopcornRewards = globalEventFeed.onGameEnd.onEach { event ->
         val loser = event.gameStep.homeTeam.takeUnless { it == event.winner } ?: event.gameStep.awayTeam
+        val eventTime = event.event.created.utc.unixMillisLong
 
         fans.forEach { (_, fan) ->
             if (fan.favouriteTeam == loser) {
@@ -804,6 +841,7 @@ class BlasementLeague(val blasement: TheBlasement, val client: HttpClient, val s
 
                 fan.setCoins { it + coinPayout }
                 fan.fanEvents.emit(ServerEvent.FanActionResponse.GainedMoney(coinPayout, EnumGainedMoneyReason.STALE_POPCORN))
+                fan.addToast("You earned $coinPayout coins from 1 {tnn}${loser} loss.", eventTime)
             }
         }
     }.launchIn(blasement)
@@ -812,6 +850,7 @@ class BlasementLeague(val blasement: TheBlasement, val client: HttpClient, val s
     /** Earn coins every time your Team shames another Team. */
     val taffyRewards = globalEventFeed.onTeamShames.onEach { event ->
         val team = event.team
+        val eventTime = event.event.created.utc.unixMillisLong
 
         fans.forEach { (_, fan) ->
             if (fan.favouriteTeam == team) {
@@ -821,6 +860,7 @@ class BlasementLeague(val blasement: TheBlasement, val client: HttpClient, val s
 
                 fan.setCoins { it + coinPayout }
                 fan.fanEvents.emit(ServerEvent.FanActionResponse.GainedMoney(coinPayout, EnumGainedMoneyReason.TAFFY))
+                fan.addToast("You earned $coinPayout coins from {tnn}${team} shaming 1 time.", eventTime)
             }
         }
     }.launchIn(blasement)
@@ -828,6 +868,7 @@ class BlasementLeague(val blasement: TheBlasement, val client: HttpClient, val s
     /** Earn coins every time your Team gets shamed. */
     val lemonadeRewards = globalEventFeed.onTeamShamed.onEach { event ->
         val team = event.team
+        val eventTime = event.event.created.utc.unixMillisLong
 
         fans.forEach { (_, fan) ->
             if (fan.favouriteTeam == team) {
@@ -837,6 +878,7 @@ class BlasementLeague(val blasement: TheBlasement, val client: HttpClient, val s
 
                 fan.setCoins { it + coinPayout }
                 fan.fanEvents.emit(ServerEvent.FanActionResponse.GainedMoney(coinPayout, EnumGainedMoneyReason.LEMONADE))
+                fan.addToast("You earned $coinPayout coins from {tnn}${team} being shamed 1 time.", eventTime)
             }
         }
     }.launchIn(blasement)
@@ -844,6 +886,9 @@ class BlasementLeague(val blasement: TheBlasement, val client: HttpClient, val s
     /** Crisp. Earn 3 coins when your Idol strikes a batter out. */
     val chipRewards = globalEventFeed.onStrikeout.onEach { event ->
         val pitcher = event.gameStep.homePitcher ?: event.gameStep.awayPitcher!!
+        val pitcherName = if (pitcher == event.gameStep.homePitcher) event.gameStep.homePitcherName else event.gameStep.awayPitcherName
+
+        val eventTime = event.event.created.utc.unixMillisLong
 
         fans.forEach { (_, fan) ->
             if (fan.idol == pitcher) {
@@ -853,6 +898,8 @@ class BlasementLeague(val blasement: TheBlasement, val client: HttpClient, val s
 
                 fan.setCoins { it + coinPayout }
                 fan.fanEvents.emit(ServerEvent.FanActionResponse.GainedMoney(coinPayout, EnumGainedMoneyReason.CHIPS))
+//                fan.addToast("You earned $coinPayout coins from ", eventTime)
+                fan.addToast("You earned $coinPayout coins from $pitcherName striking a batter out.", eventTime)
             }
         }
     }.launchIn(blasement)
@@ -860,6 +907,8 @@ class BlasementLeague(val blasement: TheBlasement, val client: HttpClient, val s
     /** Medium Rare. Earn coins when your Idol pitches a shutout. */
     val burgerRewards = globalEventFeed.onShutout.onEach { event ->
         val pitcher = event.gameStep.homePitcher ?: event.gameStep.awayPitcher!!
+        val pitcherName = if (pitcher == event.gameStep.homePitcher) event.gameStep.homePitcherName else event.gameStep.awayPitcherName
+        val eventTime = event.event.created.utc.unixMillisLong
 
         fans.forEach { (_, fan) ->
             if (fan.idol == pitcher) {
@@ -869,6 +918,7 @@ class BlasementLeague(val blasement: TheBlasement, val client: HttpClient, val s
 
                 fan.setCoins { it + coinPayout }
                 fan.fanEvents.emit(ServerEvent.FanActionResponse.GainedMoney(coinPayout, EnumGainedMoneyReason.BURGER))
+                fan.addToast("You earned $coinPayout coins from $pitcherName pitching a shutout.", eventTime)
             }
         }
     }.launchIn(blasement)
@@ -876,6 +926,8 @@ class BlasementLeague(val blasement: TheBlasement, val client: HttpClient, val s
     /** Uh oh. Earn coins when a batter hits a home run off of your Idol's pitch. */
     val meatballRewards = globalEventFeed.onHomeRun.onEach { event ->
         val pitcher = event.gameStep.homePitcher ?: event.gameStep.awayPitcher!!
+        val pitcherName = if (pitcher == event.gameStep.homePitcher) event.gameStep.homePitcherName else event.gameStep.awayPitcherName
+        val eventTime = event.event.created.utc.unixMillisLong
 
         fans.forEach { (_, fan) ->
             if (fan.idol == pitcher) {
@@ -885,6 +937,7 @@ class BlasementLeague(val blasement: TheBlasement, val client: HttpClient, val s
 
                 fan.setCoins { it + coinPayout }
                 fan.fanEvents.emit(ServerEvent.FanActionResponse.GainedMoney(coinPayout, EnumGainedMoneyReason.MEATBALL))
+                fan.addToast("You earned $coinPayout coins from a batter hitting a home run off of $pitcherName's pitch'.", eventTime)
             }
         }
     }.launchIn(blasement)
@@ -892,6 +945,8 @@ class BlasementLeague(val blasement: TheBlasement, val client: HttpClient, val s
     /** Hot Dog! Earn coins when your Idol hits a home run. */
     val hotDogRewards = globalEventFeed.onHomeRun.onEach { event ->
         val batter = event.gameStep.homeBatter ?: event.gameStep.awayBatter!!
+        val batterName = if (batter == event.gameStep.homeBatter) event.gameStep.homeBatterName else event.gameStep.awayBatterName
+        val eventTime = event.event.created.utc.unixMillisLong
 
         fans.forEach { (_, fan) ->
             if (fan.idol == batter) {
@@ -901,6 +956,7 @@ class BlasementLeague(val blasement: TheBlasement, val client: HttpClient, val s
 
                 fan.setCoins { it + coinPayout }
                 fan.fanEvents.emit(ServerEvent.FanActionResponse.GainedMoney(coinPayout, EnumGainedMoneyReason.HOT_DOG))
+                fan.addToast("You earned $coinPayout coins from $batterName hitting a home run.", eventTime)
             }
         }
     }.launchIn(blasement)
@@ -908,6 +964,8 @@ class BlasementLeague(val blasement: TheBlasement, val client: HttpClient, val s
     /** Ptooie. Earn 5 coins when your Idol gets a hit. */
     val sunflowerSeedRewards = globalEventFeed.onHit.onEach { event ->
         val batter = event.gameStep.homeBatter ?: event.gameStep.awayBatter!!
+        val batterName = if (batter == event.gameStep.homeBatter) event.gameStep.homeBatterName else event.gameStep.awayBatterName
+        val eventTime = event.event.created.utc.unixMillisLong
 
         fans.forEach { (_, fan) ->
             if (fan.idol == batter) {
@@ -917,6 +975,7 @@ class BlasementLeague(val blasement: TheBlasement, val client: HttpClient, val s
 
                 fan.setCoins { it + coinPayout }
                 fan.fanEvents.emit(ServerEvent.FanActionResponse.GainedMoney(coinPayout, EnumGainedMoneyReason.SUNFLOWER_SEEDS))
+                fan.addToast("You earned $coinPayout coins from $batterName getting a hit.", eventTime)
             }
         }
     }.launchIn(blasement)
@@ -924,6 +983,8 @@ class BlasementLeague(val blasement: TheBlasement, val client: HttpClient, val s
     /** Ptooie. Earn coins every time your Idol steals a base. */
     val pickleRewards = globalEventFeed.onStolenBase.onEach { event ->
         val batter = event.event.playerTags.firstOrNull() ?: return@onEach
+        val batterName = if (batter == event.gameStep.homeBatter) event.gameStep.homeBatterName else event.gameStep.awayBatterName
+        val eventTime = event.event.created.utc.unixMillisLong
 
         fans.forEach { (_, fan) ->
             if (fan.idol == batter) {
@@ -933,12 +994,15 @@ class BlasementLeague(val blasement: TheBlasement, val client: HttpClient, val s
 
                 fan.setCoins { it + coinPayout }
                 fan.fanEvents.emit(ServerEvent.FanActionResponse.GainedMoney(coinPayout, EnumGainedMoneyReason.PICKLES))
+                fan.addToast("You earned $coinPayout coins from $batterName stealing a base.", eventTime)
             }
         }
     }.launchIn(blasement)
 
     /** Ptooie. Earn coins for every baserunner swept away by Flooding weather across the league. */
     val slushieRewards = globalEventFeed.onFlood.onEach { event ->
+        val eventTime = event.event.created.utc.unixMillisLong
+
         fans.forEach { (_, fan) ->
             val snackCount = fan.inventory[EnumBlaseballSnack.SLUSHIE]?.takeIf { it > 0 } ?: return@forEach
             val payoutRate = EnumBlaseballSnack.SLUSHIE[snackCount - 1]?.payout ?: return@forEach
@@ -946,11 +1010,14 @@ class BlasementLeague(val blasement: TheBlasement, val client: HttpClient, val s
 
             fan.setCoins { it + coinPayout }
             fan.fanEvents.emit(ServerEvent.FanActionResponse.GainedMoney(coinPayout, EnumGainedMoneyReason.SLUSHIE))
+            fan.addToast("You earned $coinPayout coins from ${event.playersFlooded.size} Baserunners being cleared in Flood weather.", eventTime)
         }
     }.launchIn(blasement)
 
     /** Refreshing. Earn coins every time a Player is incinerated. */
     val sundaeRewards = globalEventFeed.onIncineration.onEach { event ->
+        val eventTime = event.event.created.utc.unixMillisLong
+
         fans.forEach { (_, fan) ->
             val snackCount = fan.inventory[EnumBlaseballSnack.SUNDAE]?.takeIf { it > 0 } ?: return@forEach
             val payoutRate = EnumBlaseballSnack.SUNDAE[snackCount - 1]?.payout ?: return@forEach
@@ -958,11 +1025,14 @@ class BlasementLeague(val blasement: TheBlasement, val client: HttpClient, val s
 
             fan.setCoins { it + coinPayout }
             fan.fanEvents.emit(ServerEvent.FanActionResponse.GainedMoney(coinPayout, EnumGainedMoneyReason.SUNDAE))
+            fan.addToast("You earned $coinPayout coins from 1 Incinerations; RIV.", eventTime)
         }
     }.launchIn(blasement)
 
     /** Earn coins for every time the Black Hole swallows a Win from any Team. */
     val wetPretzelRewards = globalEventFeed.onBlackHole.onEach { event ->
+        val eventTime = event.event.created.utc.unixMillisLong
+
         fans.forEach { (_, fan) ->
             val snackCount = fan.inventory[EnumBlaseballSnack.WET_PRETZEL]?.takeIf { it > 0 } ?: return@forEach
             val payoutRate = EnumBlaseballSnack.WET_PRETZEL[snackCount - 1]?.payout ?: return@forEach
@@ -970,11 +1040,14 @@ class BlasementLeague(val blasement: TheBlasement, val client: HttpClient, val s
 
             fan.setCoins { it + coinPayout }
             fan.fanEvents.emit(ServerEvent.FanActionResponse.GainedMoney(coinPayout, EnumGainedMoneyReason.WET_PRETZEL))
+            fan.addToast("You earned $coinPayout coins from Black Holes being activated 1 time.", eventTime)
         }
     }.launchIn(blasement)
 
     /** Earn coins for every time Sun 2 sets a Win on a Team. */
     val doughnutRewards = globalEventFeed.onSun2.onEach { event ->
+        val eventTime = event.event.created.utc.unixMillisLong
+
         fans.forEach { (_, fan) ->
             val snackCount = fan.inventory[EnumBlaseballSnack.DOUGHNUT]?.takeIf { it > 0 } ?: return@forEach
             val payoutRate = EnumBlaseballSnack.DOUGHNUT[snackCount - 1]?.payout ?: return@forEach
@@ -982,6 +1055,7 @@ class BlasementLeague(val blasement: TheBlasement, val client: HttpClient, val s
 
             fan.setCoins { it + coinPayout }
             fan.fanEvents.emit(ServerEvent.FanActionResponse.GainedMoney(coinPayout, EnumGainedMoneyReason.DOUGHNUT))
+            fan.addToast("You earned $coinPayout coins from Sun 2 being activated 1 time.", eventTime)
         }
     }.launchIn(blasement)
 }

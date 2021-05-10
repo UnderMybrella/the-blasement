@@ -2,6 +2,7 @@ import dev.brella.blasement.BlasebackMachineAccelerated
 import dev.brella.blasement.BlasementDataSourceWrapper
 import dev.brella.blasement.BlasementLeague
 import dev.brella.blasement.blaseball
+import dev.brella.blasement.convenience
 import dev.brella.kornea.blaseball.BlaseballApi
 import dev.brella.kornea.blaseball.base.common.FeedID
 import dev.brella.kornea.blaseball.base.common.GameID
@@ -148,6 +149,8 @@ fun Application.module(testing: Boolean = false) {
 //                blaseball(BlasementLeague(blasement, client, BlasebackMachineAccelerated.liveBait(client, blaseballApi, json, 5.seconds)))
 //            }
         }
+
+        route("/sibr") { convenience(client) }
 
         get("/random/{following...}") {
             val gamesToday = blasement.gamesToday()

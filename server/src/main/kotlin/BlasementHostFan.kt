@@ -7,19 +7,16 @@ import dev.brella.kornea.blaseball.base.common.EnumBlaseballSnack
 import dev.brella.kornea.blaseball.base.common.GameID
 import dev.brella.kornea.blaseball.base.common.PlayerID
 import dev.brella.kornea.blaseball.base.common.TeamID
-import dev.brella.kornea.blaseball.base.common.joinParams
 import dev.brella.kornea.toolkit.coroutines.ReadWriteSemaphore
 import dev.brella.kornea.toolkit.coroutines.withWritePermit
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.reactive.awaitFirstOrNull
-import kotlinx.serialization.json.JsonPrimitive
 import org.springframework.r2dbc.core.await
 import org.springframework.r2dbc.core.awaitSingleOrNull
 import org.springframework.r2dbc.core.bind as bindNullable
 import java.util.*
 import kotlin.random.Random
 
-import java.util.UUID as JUUID
 import dev.brella.kornea.blaseball.base.common.UUID as KUUID
 
 fun BlasementFanPayload.toHost(blasement: TheBlasement): BlasementHostFan =
@@ -362,6 +359,48 @@ class BlasementHostFan(
         _favouriteTeam = newValue
     }
 
+    private suspend inline fun changeIdol(calculate: (idol: PlayerID?) -> PlayerID) = setIdol(calculate(_idol))
+    suspend fun setIdol(calculate: (idol: PlayerID?) -> PlayerID) = semaphore.withWritePermit { setIdol(calculate(_idol)) }
+    private suspend fun setIdol(newValue: PlayerID) {
+        blasement.client.sql("UPDATE fans SET idol = $2 WHERE fan_id = $1")
+            .bindAs("$1", id)
+            .bindAs("$2", newValue)
+            .await()
+
+        _idol = newValue
+    }
+
+    suspend fun changeTeam(newFavourite: TeamID): Pair<TeamID?, EnumChangeTeamFail?> = semaphore.withWritePermit {
+        when (val oldTeam = _favouriteTeam) {
+            newFavourite -> return null to EnumChangeTeamFail.ALREADY_FAVOURITE_TEAM
+            null -> {
+                setFavouriteTeam(newFavourite)
+                return null to null
+            }
+            else -> {
+                val flutes = inventory[EnumBlaseballSnack.FLUTES] ?: return null to EnumChangeTeamFail.NO_FLUTE
+
+                if (flutes <= 0) return null to EnumChangeTeamFail.NO_FLUTE
+
+                removeItem(EnumBlaseballSnack.FLUTES) { 1 }
+                setFavouriteTeam(newFavourite)
+
+                return oldTeam to null
+            }
+        }
+    }
+    suspend fun changeIdol(newIdol: PlayerID): Pair<PlayerID?, EnumChangeIdolFail?> = semaphore.withWritePermit {
+        val oldIdol = _idol
+
+        if (oldIdol == newIdol) return null to EnumChangeIdolFail.ALREADY_IDOL
+        if (coins < 200) return null to EnumChangeIdolFail.NOT_ENOUGH_COINS
+
+        coins { it - 200 }
+        setIdol { newIdol }
+
+        return oldIdol to null
+    }
+
     override suspend fun beg(): Pair<Int?, EnumBegFail?> = semaphore.withWritePermit {
         if (coins > 0) return Pair(null, EnumBegFail.TOO_MANY_COINS)
         if (EnumBlaseballSnack.BREAD_CRUMBS !in inventory) return Pair(null, EnumBegFail.NO_BREAD_CRUMBS)
@@ -380,6 +419,18 @@ class BlasementHostFan(
 
         coins { it - price }
         shopUnlocked { true }
+
+        return price to null
+    }
+
+    suspend fun purchaseVotingRights(): Pair<Int?, EnumUnlockFail?> = semaphore.withWritePermit {
+        val price = 100
+
+        if (hasUnlockedElections) return null to EnumUnlockFail.ALREADY_UNLOCKED
+        if (coins < price) return null to EnumUnlockFail.NOT_ENOUGH_COINS
+
+        coins { it - price }
+        electionsUnlocked { true }
 
         return price to null
     }
@@ -510,12 +561,15 @@ class BlasementHostFan(
         }
     }
 
-    suspend fun addToast(toast: String, time: Long) =
+    suspend fun addToast(toast: String, time: Long) {
         blasement.client.sql("INSERT INTO toasts (fan_id, toast, timestamp) VALUES ($1, $2, $3)")
             .bindAs("$1", id)
             .bind("$2", toast)
             .bind("$3", time)
             .await()
+
+        fanEvents.emit(ServerEvent.Toast(toast, time))
+    }
 
     init {
         _inventory.putAll(inventory)
