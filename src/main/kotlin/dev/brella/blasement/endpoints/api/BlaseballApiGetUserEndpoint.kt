@@ -1,5 +1,8 @@
-package dev.brella.blasement.endpoints
+package dev.brella.blasement.endpoints.api
 
+import dev.brella.blasement.data.BlasementLeague
+import dev.brella.blasement.data.Request
+import dev.brella.blasement.endpoints.BlaseballEndpoint
 import io.ktor.application.*
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
@@ -10,9 +13,9 @@ import kotlinx.serialization.json.putJsonArray
 import kotlinx.serialization.json.putJsonObject
 import java.util.*
 
-fun interface BlasementGetUserEndpoint {
-    sealed class GuestSibr: BlasementGetUserEndpoint {
-        object Season20: GuestSibr() {
+fun interface BlaseballApiGetUserEndpoint : BlaseballEndpoint {
+    sealed class GuestSibr : BlaseballApiGetUserEndpoint {
+        object Season20 : GuestSibr() {
             /**
              * id: "",
             email: "",
@@ -38,7 +41,7 @@ fun interface BlasementGetUserEndpoint {
             googleId: null,
             appleId: null,
              */
-            override suspend fun getUserFor(call: ApplicationCall): JsonElement =
+            override suspend fun getDataFor(league: BlasementLeague, request: Request): JsonElement =
                 buildJsonObject {
                     put("id", UUID.randomUUID().toString())
                     put("email", "guest@sibr.dev")
@@ -83,5 +86,6 @@ fun interface BlasementGetUserEndpoint {
                 }
         }
     }
-    suspend fun getUserFor(call: ApplicationCall): JsonElement
+
+    override suspend fun getDataFor(league: BlasementLeague, request: Request): JsonElement?
 }

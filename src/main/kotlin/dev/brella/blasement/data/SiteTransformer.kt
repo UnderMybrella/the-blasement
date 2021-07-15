@@ -1,11 +1,11 @@
 package dev.brella.blasement.data
 
 sealed interface SiteTransformer {
-    fun interface InitialBinaryTransformer: SiteTransformer {
+    fun interface InitialBinaryTransformer : SiteTransformer {
         fun transform(data: ByteArray): ByteArray?
     }
 
-    fun interface InitialTextTransformer: SiteTransformer {
+    fun interface InitialTextTransformer : SiteTransformer {
         data class ReplaceStaticAssets(val basePath: String) : InitialTextTransformer {
             companion object {
                 val MAIN_JS_REGEX = "\"(https://d35iw2jmbg6ut8.cloudfront.net)?/static/js/main\\..+\\.chunk\\.js\"".toRegex()
@@ -20,8 +20,16 @@ sealed interface SiteTransformer {
         }
 
         data class ReplaceApiCalls(val basePath: String) : InitialTextTransformer {
+            companion object {
+                val BASE_REGEX = "\"/([^\"])".toRegex()
+                val ROOT_REGEX = "\"/\"([>}])".toRegex()
+                val PUSH_REGEX = "\\.(push)\\(\"/\"\\)".toRegex()
+            }
+
             override fun transform(data: String): String =
-                data.replace("\"/", "\"$basePath/")
+                data.replace(BASE_REGEX, "\"$basePath/\$1")
+                    .replace(ROOT_REGEX, "\"$basePath/\"\$1")
+                    .replace(PUSH_REGEX, ".\$1(\"$basePath/\")")
         }
 
         object ReplaceFacebookWithDiscord : InitialTextTransformer {
@@ -39,7 +47,7 @@ sealed interface SiteTransformer {
         fun transform(data: String): String?
     }
 
-    fun interface FinalTextTransformer: SiteTransformer {
+    fun interface FinalTextTransformer : SiteTransformer {
         data class ReplaceTimeWithWebsocket(val basePath: String) : FinalTextTransformer {
             override fun transform(data: String): String =
                 data.replace("new Date()", "time()")
@@ -50,7 +58,7 @@ sealed interface SiteTransformer {
         fun transform(data: String): String?
     }
 
-    fun interface FinalBinaryTransformer: SiteTransformer {
+    fun interface FinalBinaryTransformer : SiteTransformer {
         fun transform(data: ByteArray): ByteArray?
     }
 }

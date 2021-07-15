@@ -5,6 +5,10 @@ import dev.brella.blasement.plugins.configureMonitoring
 import dev.brella.blasement.plugins.configureRouting
 import dev.brella.blasement.plugins.configureSerialization
 import dev.brella.blasement.plugins.configureSockets
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
 
 fun main(args: Array<String>): Unit =
     io.ktor.server.netty.EngineMain.main(args)

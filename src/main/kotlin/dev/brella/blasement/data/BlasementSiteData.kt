@@ -4,7 +4,6 @@ import io.ktor.application.*
 import io.ktor.client.*
 import io.ktor.client.features.*
 import io.ktor.client.request.*
-import io.ktor.client.statement.*
 import io.ktor.http.*
 import io.ktor.response.*
 import kotlinx.coroutines.CoroutineScope
@@ -29,7 +28,7 @@ class BlasementSiteData(
     val mainJsTransformers: List<SiteTransformer>,
     val twoJsTransformers: List<SiteTransformer>,
     val mainCssTransformers: List<SiteTransformer>,
-    val timeSource: suspend () -> Instant
+    val clock: BlasementClock
 ) {
     companion object : CoroutineScope {
         override val coroutineContext: CoroutineContext = SupervisorJob()
@@ -107,91 +106,95 @@ class BlasementSiteData(
             var after: Instant? = null
 
             loop@ while (isActive) {
-                val now = timeSource()
-                val results = http.get<ChroniclerSiteDataWrapper>("https://api.sibr.dev/chronicler/v1/site/updates") {
-                    parameter("order", "desc")
-                    parameter("count", 50)
-                    parameter("before", now)
-                    if (after != null) parameter("after", after)
-                }.data
+                try {
+                    val now = clock.getTime()
+                    val results = http.get<ChroniclerSiteDataWrapper>("https://api.sibr.dev/chronicler/v1/site/updates") {
+                        parameter("order", "desc")
+                        parameter("count", 50)
+                        parameter("before", now)
+                        if (after != null) parameter("after", after)
+                    }.data
 
-                if (results == null) {
-                    delay(500)
-                    continue
-                }
-
-                if (results.isEmpty()) {
-                    delay(60_000)
-                    continue
-                }
-
-                after = now
-
-                var newIndexHtml: Pair<ChroniclerSiteData, ByteArray>? = null
-                var new2Js: Pair<ChroniclerSiteData, ByteArray>? = null
-                var newMainJs: Pair<ChroniclerSiteData, ByteArray>? = null
-                var newMainCss: Pair<ChroniclerSiteData, ByteArray>? = null
-
-                for (data in results) {
-                    if (newIndexHtml == null && data.path.matches(INDEX_HTML_REGEX)) {
-                        val cacheFile = File(cacheDir, "${data.hash}.html")
-                        if (cacheFile.exists()) {
-                            newIndexHtml = withContext(Dispatchers.IO) { data to cacheFile.readBytes() }
-                        } else {
-                            val bytes = downloadData(data) ?: continue@loop
-                            withContext(Dispatchers.IO) { cacheFile.writeBytes(bytes) }
-
-                            newIndexHtml = data to bytes
-                        }
-                    } else if (new2Js == null && data.path.matches(TWO_CHUNK_JS_REGEX)) {
-                        val cacheFile = File(cacheDir, "${data.hash}.js")
-                        if (cacheFile.exists()) {
-                            new2Js = withContext(Dispatchers.IO) { data to cacheFile.readBytes() }
-                        } else {
-                            val bytes = downloadData(data) ?: continue@loop
-                            withContext(Dispatchers.IO) { cacheFile.writeBytes(bytes) }
-
-                            new2Js = data to bytes
-                        }
-                    } else if (newMainJs == null && data.path.matches(MAIN_CHUNK_JS_REGEX)) {
-                        val cacheFile = File(cacheDir, "${data.hash}.js")
-                        if (cacheFile.exists()) {
-                            newMainJs = withContext(Dispatchers.IO) { data to cacheFile.readBytes() }
-                        } else {
-                            val bytes = downloadData(data) ?: continue@loop
-                            withContext(Dispatchers.IO) { cacheFile.writeBytes(bytes) }
-
-                            newMainJs = data to bytes
-                        }
-                    } else if (newMainCss == null && data.path.matches(MAIN_CHUNK_CSS_REGEX)) {
-                        val cacheFile = File(cacheDir, "${data.hash}.css")
-                        if (cacheFile.exists()) {
-                            newMainCss = withContext(Dispatchers.IO) { data to cacheFile.readBytes() }
-                        } else {
-                            val bytes = downloadData(data) ?: continue@loop
-                            withContext(Dispatchers.IO) { cacheFile.writeBytes(bytes) }
-
-                            newMainCss = data to bytes
-                        }
+                    if (results == null) {
+                        delay(500)
+                        continue
                     }
 
-                    if (newIndexHtml != null && newMainCss != null && newMainJs != null && new2Js != null) break
-                }
+                    if (results.isEmpty()) {
+                        delay(60_000)
+                        continue
+                    }
 
-                newIndexHtml?.let { (_, response) ->
-                    _indexHtml.value = transformWith(indexHtmlTransformers, response)
-                }
+                    after = now
 
-                new2Js?.let { (_, response) ->
-                    _twoJs.value = transformWith(twoJsTransformers, response)
-                }
+                    var newIndexHtml: Pair<ChroniclerSiteData, ByteArray>? = null
+                    var new2Js: Pair<ChroniclerSiteData, ByteArray>? = null
+                    var newMainJs: Pair<ChroniclerSiteData, ByteArray>? = null
+                    var newMainCss: Pair<ChroniclerSiteData, ByteArray>? = null
 
-                newMainJs?.let { (_, response) ->
-                    _mainJs.value = transformWith(mainJsTransformers, response)
-                }
+                    for (data in results) {
+                        if (newIndexHtml == null && data.path.matches(INDEX_HTML_REGEX)) {
+                            val cacheFile = File(cacheDir, "${data.hash}.html")
+                            if (cacheFile.exists()) {
+                                newIndexHtml = withContext(Dispatchers.IO) { data to cacheFile.readBytes() }
+                            } else {
+                                val bytes = downloadData(data) ?: continue@loop
+                                withContext(Dispatchers.IO) { cacheFile.writeBytes(bytes) }
 
-                newMainCss?.let { (_, response) ->
-                    _mainCss.value = transformWith(mainCssTransformers, response)
+                                newIndexHtml = data to bytes
+                            }
+                        } else if (new2Js == null && data.path.matches(TWO_CHUNK_JS_REGEX)) {
+                            val cacheFile = File(cacheDir, "${data.hash}.js")
+                            if (cacheFile.exists()) {
+                                new2Js = withContext(Dispatchers.IO) { data to cacheFile.readBytes() }
+                            } else {
+                                val bytes = downloadData(data) ?: continue@loop
+                                withContext(Dispatchers.IO) { cacheFile.writeBytes(bytes) }
+
+                                new2Js = data to bytes
+                            }
+                        } else if (newMainJs == null && data.path.matches(MAIN_CHUNK_JS_REGEX)) {
+                            val cacheFile = File(cacheDir, "${data.hash}.js")
+                            if (cacheFile.exists()) {
+                                newMainJs = withContext(Dispatchers.IO) { data to cacheFile.readBytes() }
+                            } else {
+                                val bytes = downloadData(data) ?: continue@loop
+                                withContext(Dispatchers.IO) { cacheFile.writeBytes(bytes) }
+
+                                newMainJs = data to bytes
+                            }
+                        } else if (newMainCss == null && data.path.matches(MAIN_CHUNK_CSS_REGEX)) {
+                            val cacheFile = File(cacheDir, "${data.hash}.css")
+                            if (cacheFile.exists()) {
+                                newMainCss = withContext(Dispatchers.IO) { data to cacheFile.readBytes() }
+                            } else {
+                                val bytes = downloadData(data) ?: continue@loop
+                                withContext(Dispatchers.IO) { cacheFile.writeBytes(bytes) }
+
+                                newMainCss = data to bytes
+                            }
+                        }
+
+                        if (newIndexHtml != null && newMainCss != null && newMainJs != null && new2Js != null) break
+                    }
+
+                    newIndexHtml?.let { (_, response) ->
+                        _indexHtml.value = transformWith(indexHtmlTransformers, response)
+                    }
+
+                    new2Js?.let { (_, response) ->
+                        _twoJs.value = transformWith(twoJsTransformers, response)
+                    }
+
+                    newMainJs?.let { (_, response) ->
+                        _mainJs.value = transformWith(mainJsTransformers, response)
+                    }
+
+                    newMainCss?.let { (_, response) ->
+                        _mainCss.value = transformWith(mainCssTransformers, response)
+                    }
+                } catch (th: Throwable) {
+                    th.printStackTrace()
                 }
             }
         }
