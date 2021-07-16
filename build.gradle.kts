@@ -35,5 +35,7 @@ dependencies {
     implementation("io.ktor:ktor-client-serialization:$ktor_version")
     implementation("io.ktor:ktor-client-encoding:$ktor_version")
 
+    implementation("com.github.ben-manes.caffeine:caffeine:3.0.3")
+
     testImplementation("io.ktor:ktor-server-tests:$ktor_version")
 }

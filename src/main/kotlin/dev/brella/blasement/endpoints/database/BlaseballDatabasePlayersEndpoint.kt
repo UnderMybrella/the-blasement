@@ -12,9 +12,11 @@ import kotlinx.serialization.json.JsonElement
 fun interface BlaseballDatabasePlayersEndpoint: BlaseballEndpoint {
     object Chronicler: BlaseballDatabasePlayersEndpoint {
         override suspend fun getDataFor(league: BlasementLeague, request: Request): JsonElement? =
-            league.httpClient.getChroniclerEntityList("player", league.clock.getTime()) {
-                parameter("id", request.call.request.queryParameters["ids"])
-            }?.let(::JsonArray)
+            request.call.request.queryParameters["ids"]?.takeIf(String::isNotBlank)?.let { ids ->
+                league.httpClient.getChroniclerEntityList("player", league.clock.getTime()) {
+                    parameter("id", ids)
+                }
+            }?.let(::JsonArray) ?: JsonArray(emptyList())
     }
 
     override suspend fun getDataFor(league: BlasementLeague, request: Request): JsonElement?

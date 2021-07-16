@@ -19,13 +19,17 @@ fun interface BlaseballDatabasePlayersByItemEndpoint : BlaseballEndpoint {
         override suspend fun getDataFor(league: BlasementLeague, request: Request): JsonElement? {
             val id = request.call.request.queryParameters["id"] ?: return null
             return league.httpClient.getChroniclerEntityList("player", league.clock.getTime())
-                ?.filter { element ->
-                    val player = element as? JsonObject ?: return@filter false
+                ?.mapNotNull { element ->
+                    val player = element as? JsonObject ?: return@mapNotNull null
                     val items = player.getJsonArrayOrNull("items")
                                     ?.filterIsInstance<JsonObject>()
-                                ?: return@filter false
+                                ?: return@mapNotNull null
 
-                    items.any { it.getStringOrNull("id") == id }
+                    if (items.any { it.getStringOrNull("id") == id }) {
+                        return@mapNotNull JsonObject(player + Pair("items", JsonArray(items.map { it.getValue("id") })))
+                    } else {
+                        return@mapNotNull null
+                    }
                 }
                 ?.let(::JsonArray)
         }

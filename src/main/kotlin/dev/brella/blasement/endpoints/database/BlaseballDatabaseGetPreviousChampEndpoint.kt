@@ -46,7 +46,6 @@ fun interface BlaseballDatabaseGetPreviousChampEndpoint : BlaseballEndpoint {
         override suspend fun getDataFor(league: BlasementLeague, request: Request): JsonElement? =
             request.call.request.queryParameters["season"]
                 ?.toIntOrNull()
-                ?.plus(1)
                 ?.let(OVERBRACKET_CHAMPIONS::get)
                 ?.let { id ->
                     league.httpClient.getChroniclerEntity("team", league.clock.getTime()) {

@@ -5,18 +5,11 @@ import dev.brella.blasement.data.LeagueRegistry
 import dev.brella.blasement.endpoints.*
 import dev.brella.blasement.endpoints.api.BlaseballApiGetActiveBetsEndpoint
 import dev.brella.blasement.endpoints.api.BlaseballApiGetIdolsEndpoint
+import dev.brella.blasement.endpoints.api.BlaseballApiGetRisingStarsEndpoint
 import dev.brella.blasement.endpoints.api.BlaseballApiGetTributesEndpoint
 import dev.brella.blasement.endpoints.api.BlaseballApiGetUserEndpoint
 import dev.brella.blasement.endpoints.api.BlaseballApiGetUserRewardsEndpoint
-import dev.brella.blasement.endpoints.database.BlaseballDatabaseFeedEndpoint
-import dev.brella.blasement.endpoints.database.BlaseballDatabaseOffseasonSetupEndpoint
-import dev.brella.blasement.endpoints.database.BlaseballDatabasePlayerNamesEndpoint
-import dev.brella.blasement.endpoints.database.BlaseballDatabasePlayersEndpoint
-import dev.brella.blasement.endpoints.database.BlaseballDatabaseShopSetupEndpoint
-import dev.brella.blasement.endpoints.database.BlaseballDatabaseSunSunEndpoint
-import dev.brella.blasement.endpoints.database.BlaseballDatabaseVaultEndpoint
-import dev.brella.blasement.endpoints.database.buildGlobalEvents
-import dev.brella.blasement.endpoints.database.setAllUpnuts
+import dev.brella.blasement.endpoints.database.*
 import io.ktor.routing.*
 import io.ktor.http.*
 import io.ktor.features.*
@@ -78,6 +71,8 @@ fun Application.configureRouting() {
                 getActiveBets = BlaseballApiGetActiveBetsEndpoint.GuestSibr.Season20
                 getIdols = BlaseballApiGetIdolsEndpoint.Chronicler
                 getTribute = BlaseballApiGetTributesEndpoint.Chronicler
+
+                getRisingStars = BlaseballApiGetRisingStarsEndpoint.Chronicler
             }
 
             database {
@@ -99,6 +94,10 @@ fun Application.configureRouting() {
                 offseasonSetup = BlaseballDatabaseOffseasonSetupEndpoint.Chronicler
                 vault = BlaseballDatabaseVaultEndpoint.Chronicler
                 sunSun = BlaseballDatabaseSunSunEndpoint.Chronicler
+
+                getPreviousChamp = BlaseballDatabaseGetPreviousChampEndpoint.QueryLookup
+                items = BlaseballDatabaseItemsEndpoint.Chronicler
+                playersByItemId = BlaseballDatabasePlayersByItemEndpoint.ChroniclerInefficient
             }
 
             eventsStreamData = BlaseballEventsStreamDataEndpoint.Chronicler

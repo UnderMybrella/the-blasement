@@ -1,5 +1,6 @@
 package dev.brella.blasement.data
 
+import com.github.benmanes.caffeine.cache.Caffeine
 import dev.brella.blasement.endpoints.*
 import dev.brella.blasement.endpoints.api.BlaseballApiGetActiveBetsEndpoint
 import dev.brella.blasement.endpoints.api.BlaseballApiGetIdolsEndpoint
@@ -13,6 +14,7 @@ import io.ktor.application.*
 import io.ktor.client.*
 import io.ktor.http.*
 import io.ktor.http.cio.websocket.*
+import io.ktor.request.*
 import io.ktor.response.*
 import io.ktor.util.pipeline.*
 import io.ktor.websocket.*
@@ -26,10 +28,14 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.shareIn
+import kotlinx.coroutines.future.await
+import kotlinx.coroutines.future.future
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.put
+import java.util.concurrent.TimeUnit
 import kotlin.coroutines.CoroutineContext
 import kotlin.time.ExperimentalTime
 
@@ -120,50 +126,30 @@ data class BlasementLeague(
             }
         }.shareIn(this, SharingStarted.Eagerly, 1)
 
-    suspend inline fun Request.handle(endpoint: BlaseballEndpoint?, path: String) {
+    val dataCache = Caffeine.newBuilder()
+        .maximumSize(1_000)
+        .expireAfterWrite(5, TimeUnit.SECONDS)
+        .buildAsync<String, JsonElement?>()
+
+    suspend inline fun handle(request: Request, endpoint: BlaseballEndpoint?, path: String) {
         if (endpoint == null)
-            return call.respondJsonObject(HttpStatusCode.ServiceUnavailable) {
+            return request.call.respondJsonObject(HttpStatusCode.ServiceUnavailable) {
                 put("error", "$path endpoint unavailable")
             }
 
-        call.respond(
-            endpoint.getDataFor(this@BlasementLeague, this)
-            ?: return call.respondJsonObject(HttpStatusCode.InternalServerError) {
-                put("error", "/api/getUserRewards failed to get a proper response")
-            }
-        )
-    }
+        val response = dataCache.get(request.call.request.uri) { _, _ ->
+            future { endpoint.getDataFor(this@BlasementLeague, request) }
+        }.await() ?: return request.call.respondJsonObject(HttpStatusCode.InternalServerError) {
+            put("error", "$path failed to get a proper response")
+        }
 
-    suspend fun handleApiGetUser(pipeline: Request) = pipeline.handle(apiGetUser, "/api/getUser")
-    suspend fun handleApiGetUserRewards(pipeline: Request) = pipeline.handle(apiGetUserRewards, "/api/getUserRewards")
-    suspend fun handleApiGetActiveBets(pipeline: Request) = pipeline.handle(apiGetActiveBets, "/api/getActiveBets")
-    suspend fun handleApiGetIdols(pipeline: Request) = pipeline.handle(apiGetIdols, "/api/getIdols")
-    suspend fun handleApiGetTributes(pipeline: Request) = pipeline.handle(apiGetTributes, "/api/getTributes")
+        request.call.respond(response)
+    }
 
     suspend fun handleApiTime(session: WebSocketServerSession) =
         with(session) {
             temporalFlow.collect { send(it) }
         }
-
-    suspend fun handleDatabaseFeedGlobal(pipeline: Request) = pipeline.handle(databaseGlobalFeed, "/database/feed/global")
-    suspend fun handleDatabaseFeedGame(pipeline: Request) = pipeline.handle(databaseGlobalFeed, "/database/feed/game")
-    suspend fun handleDatabaseFeedTeam(pipeline: Request) = pipeline.handle(databaseGlobalFeed, "/database/feed/team")
-    suspend fun handleDatabaseFeedPlayer(pipeline: Request) = pipeline.handle(databaseGlobalFeed, "/database/feed/player")
-    suspend fun handleDatabaseFeedStory(pipeline: Request) = pipeline.handle(databaseGlobalFeed, "/database/feed/story")
-
-    suspend fun handleDatabaseGlobalEvents(pipeline: Request) = pipeline.handle(databaseGlobalEvents, "/database/globalEvents")
-    suspend fun handleDatabaseShopSetup(pipeline: Request) = pipeline.handle(databaseShopSetup, "/database/shopSetup")
-    suspend fun handleDatabasePlayerNamesIds(pipeline: Request) = pipeline.handle(databasePlayerNames, "/database/playerNamesIds")
-    suspend fun handleDatabasePlayers(pipeline: Request) = pipeline.handle(databasePlayers, "/database/players")
-    suspend fun handleDatabaseOffseasonSetup(pipeline: Request) = pipeline.handle(databaseOffseasonSetup, "/database/offseasonSetup")
-    suspend fun handleDatabaseVault(pipeline: Request) = pipeline.handle(databaseVault, "/database/vault")
-    suspend fun handleDatabaseSunSun(pipeline: Request) = pipeline.handle(databaseSunSun, "/database/sunsun")
-
-    suspend fun handleAllDivisions(pipeline: Request) = pipeline.handle(databaseAllDivisions, "/database/allDivisions")
-    suspend fun handleAllTeams(pipeline: Request) = pipeline.handle(databaseAllTeams, "/database/allTeams")
-    suspend fun handleCommunityChestProgress(pipeline: Request) = pipeline.handle(databaseCommunityChestProgress, "/database/communityChestProgress")
-    suspend fun handleBonusResults(pipeline: Request) = pipeline.handle(databaseBonusResults, "/database/bonusResults")
-    suspend fun handleDecreeResults(pipeline: Request) = pipeline.handle(databaseDecreeResults, "/database/decreeResults")
 
     suspend fun handleEventsStreamData(pipeline: Request) =
         with(pipeline) {
