@@ -8,19 +8,11 @@ import dev.brella.blasement.getChroniclerEntity
 import dev.brella.blasement.getStringOrNull
 import dev.brella.kornea.errors.common.KorneaResult
 import dev.brella.kornea.errors.common.successPooled
-import kotlinx.serialization.json.JsonArrayBuilder
-import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.JsonNull
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.addJsonObject
-import kotlinx.serialization.json.buildJsonArray
-import kotlinx.serialization.json.contentOrNull
-import kotlinx.serialization.json.put
+import kotlinx.serialization.json.*
 import java.util.*
 
-fun interface BlaseballDatabaseGlobalEventsEndpoint : BlaseballEndpoint {
-    data class Static(val events: JsonElement) : BlaseballDatabaseGlobalEventsEndpoint {
+interface BlaseballDatabaseGlobalEventsEndpoint : BlaseballEndpoint {
+    data class Static(val events: JsonElement?) : BlaseballDatabaseGlobalEventsEndpoint {
         constructor(vararg events: Triple<String, String, Long?>) : this(buildJsonArray {
             events.forEach { (id, msg, expire) ->
                 addJsonObject {
@@ -31,12 +23,19 @@ fun interface BlaseballDatabaseGlobalEventsEndpoint : BlaseballEndpoint {
             }
         })
 
-        override suspend fun getDataFor(league: BlasementLeague, request: Request): JsonElement = events
+        override suspend fun getDataFor(league: BlasementLeague, request: Request): JsonElement? = events
+        override fun describe(): JsonElement? =
+            buildJsonObject {
+                put("type", "static")
+                put("data", events ?: JsonNull)
+            }
     }
 
     object Chronicler : BlaseballDatabaseGlobalEventsEndpoint {
         override suspend fun getDataFor(league: BlasementLeague, request: Request): JsonElement? =
             league.httpClient.getChroniclerEntity("globalevents", league.clock.getTime())
+
+        override fun describe() = JsonPrimitive("chronicler")
     }
 
     companion object {
@@ -53,7 +52,7 @@ fun interface BlaseballDatabaseGlobalEventsEndpoint : BlaseballEndpoint {
                     is JsonObject ->
                         when (val type = config.getStringOrNull("type")?.lowercase(Locale.getDefault())) {
                             "chronicler" -> Chronicler
-                            "static" -> config["data"].let { BlaseballDatabaseGlobalEventsEndpoint { _, _ -> it } }
+                            "static" -> Static(config["data"])
                             else -> return KorneaResult.errorAsIllegalArgument(-1, "Unknown type '$type'")
                         }
                     else -> return KorneaResult.errorAsIllegalArgument(-1, "Unknown endpoint object '$config'")

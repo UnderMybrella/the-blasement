@@ -20,13 +20,14 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.put
 import java.util.*
 import kotlin.collections.HashMap
 import kotlin.coroutines.coroutineContext
 import kotlin.time.ExperimentalTime
 
 //This is a bit of a misnomer honestly, since we're not setting up an 'endpoint'
-fun interface BlaseballEventsStreamDataEndpoint {
+interface BlaseballEventsStreamDataEndpoint {
     object Chronicler : BlaseballEventsStreamDataEndpoint {
         @OptIn(ExperimentalTime::class)
         override fun setupFlow(league: BlasementLeague): SharedFlow<String> =
@@ -63,9 +64,25 @@ fun interface BlaseballEventsStreamDataEndpoint {
                     emit(stream.toString())
                 }
             }.shareIn(league, SharingStarted.Eagerly, 1)
+
+        override fun describe(): JsonElement? =
+            JsonPrimitive("chronicler")
+    }
+
+    data class Static(val data: JsonElement?) : BlaseballEventsStreamDataEndpoint {
+        override fun setupFlow(league: BlasementLeague): SharedFlow<String> =
+            flow { emit(data.toString()) }
+                .shareIn(league, SharingStarted.Lazily, 1)
+
+        override fun describe(): JsonElement =
+            buildJsonObject {
+                put("type", "static")
+                put("data", data ?: JsonNull)
+            }
     }
 
     fun setupFlow(league: BlasementLeague): SharedFlow<String>
+    fun describe(): JsonElement?
 
     companion object {
         infix fun loadFrom(config: JsonElement?): KorneaResult<BlaseballEventsStreamDataEndpoint?> {
@@ -81,11 +98,7 @@ fun interface BlaseballEventsStreamDataEndpoint {
                     is JsonObject ->
                         when (val type = config.getStringOrNull("type")?.lowercase(Locale.getDefault())) {
                             "chronicler" -> Chronicler
-                            "static" -> config["data"].let {
-                                BlaseballEventsStreamDataEndpoint { league ->
-                                    flow { emit(it.toString()) }.shareIn(league, SharingStarted.Lazily, 1)
-                                }
-                            }
+                            "static" -> Static(config["data"])
                             else -> return KorneaResult.errorAsIllegalArgument(-1, "Unknown type '$type'")
                         }
                     else -> return KorneaResult.errorAsIllegalArgument(-1, "Unknown endpoint object '$config'")

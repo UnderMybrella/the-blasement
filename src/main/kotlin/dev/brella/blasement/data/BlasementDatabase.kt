@@ -89,7 +89,7 @@ class BlasementDatabase private constructor(config: JsonObject) : CoroutineScope
     val client = DatabaseClient.create(connectionFactory)
 
     val initJob = launch {
-        client.sql("CREATE TABLE IF NOT EXISTS blasement_instances (instance_id VARCHAR(64) NOT NULL, authentication VARCHAR(128) NOT NULL, config jsonb NOT NULL);")
+        client.sql("CREATE TABLE IF NOT EXISTS blasement_instances (instance_id VARCHAR(64) PRIMARY KEY NOT NULL, authentication VARCHAR(128) NOT NULL, config jsonb NOT NULL, created BIGINT NOT NULL);")
             .await()
     }
 }

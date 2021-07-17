@@ -6,6 +6,9 @@ plugins {
     application
     kotlin("jvm") version "1.5.20"
     id("org.jetbrains.kotlin.plugin.serialization") version "1.5.20"
+
+    id("com.github.johnrengelman.shadow") version "7.0.0"
+    id("com.bmuschko.docker-remote-api") version "7.0.0"
 }
 
 group = "dev.brella"
@@ -51,4 +54,84 @@ dependencies {
     implementation("dev.brella:kornea-errors:2.2.3-alpha")
 
     testImplementation("io.ktor:ktor-server-tests:$ktor_version")
+}
+
+application {
+    mainClass.set("dev.brella.blasement.ApplicationKt")
+}
+
+tasks.withType<com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar> {
+    mergeServiceFiles()
+    append("META-INF/spring.handlers")
+    append("META-INF/spring.schemas")
+    append("META-INF/spring.tooling")
+    transform(com.github.jengelman.gradle.plugins.shadow.transformers.PropertiesFileTransformer::class.java) {
+        paths = listOf("META-INF/spring.factories")
+        mergeStrategy = "append"
+    }
+}
+
+tasks.create<com.bmuschko.gradle.docker.tasks.image.Dockerfile>("createDockerfile") {
+    group = "docker"
+
+    destFile.set(File(rootProject.buildDir, "docker/Dockerfile"))
+    from("azul/zulu-openjdk-alpine:11-jre")
+    label(
+        mapOf(
+            "org.opencontainers.image.authors" to "UnderMybrella \"undermybrella@abimon.org\""
+        )
+    )
+    copyFile(tasks.named<com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar>("shadowJar").get().archiveFileName.get(), "/app/the-blasement.jar")
+
+    copyFile("blasement-r2dbc.json", "/app/blasement-r2dbc.json")
+    copyFile("logback.xml", "/app/logback.xml")
+    copyFile("application.conf", "/app/application.conf")
+    entryPoint("java")
+    defaultCommand(
+        "-XX:+UnlockExperimentalVMOptions",
+        "-XX:MinHeapFreeRatio=20",
+        "-XX:MaxHeapFreeRatio=40",
+        "-XX:+UseStringDeduplication",
+        "-Dlogback.configurationFile=/app/logback.xml",
+        "-Dblasement_r2dbc=/app/blasement-r2dbc.json",
+        "-jar",
+        "/app/the-blasement.jar",
+        "-config=/app/application.conf"
+    )
+}
+
+tasks.create<Sync>("syncShadowJarArchive") {
+    group = "docker"
+
+    dependsOn("assemble")
+    from(
+        tasks.named<com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar>("shadowJar").get().archiveFile.get().asFile,
+        File(rootProject.projectDir, "deployment/application.conf"),
+        File(rootProject.projectDir, "deployment/blasement-r2dbc.json"),
+        File(rootProject.projectDir, "deployment/logback.xml")
+    )
+
+    into(
+        tasks.named<com.bmuschko.gradle.docker.tasks.image.Dockerfile>("createDockerfile").get().destFile.get().asFile.parentFile
+    )
+}
+
+tasks.named("createDockerfile") {
+    dependsOn("syncShadowJarArchive")
+}
+
+tasks.create<com.bmuschko.gradle.docker.tasks.image.DockerBuildImage>("buildImage") {
+    group = "docker"
+
+    dependsOn("createDockerfile")
+    inputDir.set(tasks.named<com.bmuschko.gradle.docker.tasks.image.Dockerfile>("createDockerfile").get().destFile.get().asFile.parentFile)
+
+    images.addAll("undermybrella/the-blasement:$version", "undermybrella/the-blasement:latest")
+}
+
+tasks.create<com.bmuschko.gradle.docker.tasks.image.DockerPushImage>("pushImage") {
+    group = "docker"
+    dependsOn("buildImage")
+
+    images.addAll("undermybrella/the-blasement:$version", "undermybrella/the-blasement:latest")
 }

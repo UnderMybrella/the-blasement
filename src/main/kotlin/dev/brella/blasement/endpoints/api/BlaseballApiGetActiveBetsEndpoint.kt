@@ -12,13 +12,28 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.put
 import java.util.*
 
-fun interface BlaseballApiGetActiveBetsEndpoint : BlaseballEndpoint {
+interface BlaseballApiGetActiveBetsEndpoint : BlaseballEndpoint {
     object Empty : BlaseballApiGetActiveBetsEndpoint {
         val EMPTY = JsonArray(emptyList())
         override suspend fun getDataFor(league: BlasementLeague, request: Request): JsonElement = EMPTY
+        override fun describe(): JsonElement? =
+            JsonPrimitive("empty")
+    }
+
+    data class Static(val data: JsonElement?): BlaseballApiGetActiveBetsEndpoint {
+        override suspend fun getDataFor(league: BlasementLeague, request: Request): JsonElement? =
+            data
+
+        override fun describe(): JsonElement? =
+            buildJsonObject {
+                put("type", "static")
+                put("data", data ?: JsonNull)
+            }
     }
 
     companion object {
@@ -35,7 +50,7 @@ fun interface BlaseballApiGetActiveBetsEndpoint : BlaseballEndpoint {
                     is JsonObject ->
                         when (val type = config.getStringOrNull("type")?.lowercase(Locale.getDefault())) {
                             "empty" -> Empty
-                            "static" -> config["data"].let { BlaseballApiGetActiveBetsEndpoint { _, _ -> it } }
+                            "static" -> Static(config["data"])
                             else -> return KorneaResult.errorAsIllegalArgument(-1, "Unknown type '$type'")
                         }
                     else -> return KorneaResult.errorAsIllegalArgument(-1, "Unknown endpoint object '$config'")

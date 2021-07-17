@@ -11,15 +11,10 @@ import io.ktor.application.*
 import io.ktor.client.features.*
 import io.ktor.client.request.*
 import io.ktor.util.*
-import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.JsonNull
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.*
 import java.util.*
 
-fun interface BlaseballDatabaseFeedByPhaseEndpoint : BlaseballEndpoint {
+interface BlaseballDatabaseFeedByPhaseEndpoint : BlaseballEndpoint {
     class Upnuts(vararg val providers: String) : BlaseballDatabaseFeedByPhaseEndpoint {
         companion object {
             const val TGB = "7fcb63bc-11f2-40b9-b465-f1d458692a63"
@@ -38,6 +33,24 @@ fun interface BlaseballDatabaseFeedByPhaseEndpoint : BlaseballEndpoint {
                     socketTimeoutMillis = 20_000
                 }
             }
+
+        override fun describe(): JsonElement? =
+            buildJsonObject {
+                put("type", "upnuts")
+                putJsonArray("providers") {
+                    providers.forEach { add(it) }
+                }
+            }
+    }
+
+    data class Static(val feed: JsonElement?) : BlaseballDatabaseFeedByPhaseEndpoint {
+        override suspend fun getDataFor(league: BlasementLeague, request: Request): JsonElement? = feed
+
+        override fun describe(): JsonElement? =
+            buildJsonObject {
+                put("type", "static")
+                put("data", feed ?: JsonNull)
+            }
     }
 
     companion object {
@@ -54,7 +67,7 @@ fun interface BlaseballDatabaseFeedByPhaseEndpoint : BlaseballEndpoint {
                     is JsonObject ->
                         when (val type = config.getStringOrNull("type")?.lowercase(Locale.getDefault())) {
                             "upnuts" -> Upnuts(Upnuts.TGB)
-                            "static" -> config["data"].let { BlaseballDatabaseFeedByPhaseEndpoint { _, _ -> it } }
+                            "static" -> Static(config["data"])
                             else -> return KorneaResult.errorAsIllegalArgument(-1, "Unknown type '$type'")
                         }
                     else -> return KorneaResult.errorAsIllegalArgument(-1, "Unknown endpoint object '$config'")

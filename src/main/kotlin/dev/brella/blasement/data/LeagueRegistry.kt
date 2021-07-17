@@ -33,6 +33,7 @@ import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.put
+import org.springframework.r2dbc.core.await
 import org.springframework.r2dbc.core.awaitRowsUpdated
 import org.springframework.security.crypto.argon2.Argon2PasswordEncoder
 import java.util.*
@@ -47,6 +48,7 @@ class LeagueRegistry(val json: Json, val httpClient: HttpClient, datablaseConfig
     private val leagues: MutableMap<String, BlasementLeague> = HashMap()
     private val datablase = BlasementDatabase.asAsync(this, datablaseConfig)
     private val argon2 = Argon2PasswordEncoder()
+    private val utc = java.time.Clock.systemUTC()
 
     public fun registerTemporaryLeague(league: BlasementLeague) =
         leagues.put(league.leagueID, league)
@@ -65,26 +67,24 @@ class LeagueRegistry(val json: Json, val httpClient: HttpClient, datablaseConfig
     ) =
         registerTemporaryLeague(buildBlasementLeague(leagueID, json, http, clock, protection, authentication, block = block))
 
-    public suspend fun registerLeague(config: JsonObject, authentication: String, leagueID: String? = null): KorneaResult<BlasementLeague> =
-        parseLeagueFromConfig(config, authentication, leagueID)
-            .filter { league ->
+    public suspend fun registerLeague(config: JsonObject, authentication: String, createdAt: Long = utc.millis(), leagueID: String? = null): KorneaResult<BlasementLeague> =
+        parseLeagueFromConfig(config, authentication, createdAt = createdAt, leagueID = leagueID)
+            .flatMapOrSelf { league ->
                 if (datablase.await()
                         .client
-                        .sql("INSERT INTO blasement_instances (instance_id, authentication, config) VALUES ($1, $2, $3)")
+                        .sql("INSERT INTO blasement_instances (instance_id, authentication, config, created) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING")
                         .bind("$1", league.leagueID)
                         .bind("$2", league.authentication)
                         .bind("$3", io.r2dbc.postgresql.codec.Json.of(config.toString()))
+                        .bind("$4", createdAt)
                         .fetch()
                         .awaitRowsUpdated() == 1
                 ) {
-                    println("Made it hahayes")
                     leagues[league.leagueID] = league
 
-                    return@filter true
+                    return@flatMapOrSelf null
                 } else {
-                    println(">:(")
-
-                    return@filter false
+                    KorneaResult.errorAsIllegalArgument(-1, "Failed to register league - already exists with ID ${league.leagueID}")
                 }
             }
 //
@@ -103,7 +103,7 @@ class LeagueRegistry(val json: Json, val httpClient: HttpClient, datablaseConfig
 //        registerLeague(buildBlasementLeague(leagueID, json, http, clock, protection, authentication, block = block))
 
     @OptIn(ExperimentalTime::class)
-    fun parseLeagueFromConfig(config: JsonObject, authentication: String, leagueID: String? = null): KorneaResult<BlasementLeague> =
+    fun parseLeagueFromConfig(config: JsonObject, authentication: String, createdAt: Long = utc.millis(), leagueID: String? = null): KorneaResult<BlasementLeague> =
         KorneaResult.successPooled(
             buildBlasementLeague(leagueID, json, httpClient, authentication = authentication) {
                 config.getStringOrNull("league_id")?.let { this.leagueID = it }
@@ -118,7 +118,7 @@ class LeagueRegistry(val json: Json, val httpClient: HttpClient, datablaseConfig
                     }
 
                 clock = BlasementClock
-                    .loadFrom(config["clock"])
+                    .loadFrom(config["clock"], createdAt, utc)
                     .consumeOnSuccessGetOrBreak { return it.cast() }
 
                 api {
@@ -284,8 +284,18 @@ class LeagueRegistry(val json: Json, val httpClient: HttpClient, datablaseConfig
         try {
             datablase.await()
                 .client
-                .sql("SELECT instance_id, authentication, config FROM blasement_instances")
-                .map { row -> Pair(parseLeagueFromConfig(json.decodeFromString(row.getValue("config")), row.getValue("authentication"), row.getValue("instance_id")), row.getValue<String>("instance_id")) }
+                .sql("SELECT instance_id, authentication, config, created FROM blasement_instances")
+                .map { row ->
+                    Pair(
+                        parseLeagueFromConfig(
+                            json.decodeFromString(row.getValue("config")),
+                            row.getValue("authentication"),
+                            createdAt = row.getValue("created"),
+                            leagueID = row.getValue("instance_id")
+                        ),
+                        row.getValue<String>("instance_id")
+                    )
+                }
                 .all()
                 .asFlow()
                 .onEach { (leagueResult, leagueID) ->
@@ -303,8 +313,7 @@ class LeagueRegistry(val json: Json, val httpClient: HttpClient, datablaseConfig
     @ContextDsl
     private inline fun Route.getLeague(path: String, crossinline body: suspend BlasementLeague.(PipelineContext<Unit, ApplicationCall>) -> Unit): Route =
         get(path) {
-            leagues[call.parameters.getOrFail("league_id")]
-                ?.let { body(it, this) }
+            league()?.let { body(it, this) }
             ?: return@get call.respondJsonObject(HttpStatusCode.NotFound) {
                 put("error", "No league found")
             }
@@ -313,8 +322,7 @@ class LeagueRegistry(val json: Json, val httpClient: HttpClient, datablaseConfig
     @ContextDsl
     private inline fun Route.getLeague(path: String, endpoint: KProperty1<BlasementLeague, BlaseballEndpoint?>): Route =
         get(path) {
-            leagues[call.parameters.getOrFail("league_id")]
-                ?.let { it.handle(this, endpoint.get(it), path) }
+            league()?.let { it.handle(this, endpoint.get(it), path) }
             ?: return@get call.respondJsonObject(HttpStatusCode.NotFound) {
                 put("error", "No league found")
             }
@@ -323,8 +331,7 @@ class LeagueRegistry(val json: Json, val httpClient: HttpClient, datablaseConfig
     @ContextDsl
     private inline fun Route.webSocketLeague(path: String, crossinline body: suspend BlasementLeague.(WebSocketServerSession) -> Unit): Unit =
         webSocket(path) {
-            leagues[call.parameters.getOrFail("league_id")]
-                ?.let { body(it, this) }
+            league()?.let { body(it, this) }
             ?: return@webSocket call.respondJsonObject(HttpStatusCode.NotFound) {
                 put("error", "No league found")
             }
@@ -333,8 +340,7 @@ class LeagueRegistry(val json: Json, val httpClient: HttpClient, datablaseConfig
     @ContextDsl
     private inline fun Route.getWithLeagueBody(crossinline body: suspend PipelineContext<Unit, ApplicationCall>.(league: BlasementLeague) -> Unit): Route =
         get {
-            leagues[call.parameters.getOrFail("league_id")]
-                ?.let { body(this, it) }
+            league()?.let { body(this, it) }
             ?: return@get call.respondJsonObject(HttpStatusCode.NotFound) {
                 put("error", "No league found")
             }
@@ -343,12 +349,33 @@ class LeagueRegistry(val json: Json, val httpClient: HttpClient, datablaseConfig
     @ContextDsl
     private inline fun Route.getWithLeagueBody(path: String, crossinline body: suspend PipelineContext<Unit, ApplicationCall>.(league: BlasementLeague) -> Unit): Route =
         get(path) {
-            leagues[call.parameters.getOrFail("league_id")]
-                ?.let { body(this, it) }
+            league()?.let { body(this, it) }
             ?: return@get call.respondJsonObject(HttpStatusCode.NotFound) {
                 put("error", "No league found")
             }
         }
+
+    private inline fun PipelineContext<Unit, ApplicationCall>.league(): BlasementLeague? {
+        val authToken = call.request.header(HttpHeaders.Authorization)
+
+        val league = leagues[call.parameters.getOrFail("league_id")] ?: return null
+
+        if (league.protection == EnumProtectionStatus.PRIVATE)
+            if (authToken == null || !argon2.matches(authToken, league.authentication)) return null
+
+        return league
+    }
+
+    private inline fun WebSocketServerSession.league(): BlasementLeague? {
+        val authToken = call.request.header(HttpHeaders.Authorization)
+
+        val league = leagues[call.parameters.getOrFail("league_id")] ?: return null
+
+        if (league.protection == EnumProtectionStatus.PRIVATE)
+            if (authToken == null || !argon2.matches(authToken, league.authentication)) return null
+
+        return league
+    }
 
     public fun setupRouting(root: Route) {
         root.route("/leagues/{league_id}") {
@@ -430,7 +457,47 @@ class LeagueRegistry(val json: Json, val httpClient: HttpClient, datablaseConfig
         root.route("/api") {
             route("/leagues") {
                 get("/public") {
-                    call.respond(leagues.values.filter { league -> league.protection == EnumProtectionStatus.PUBLIC })
+                    call.respondJsonObject {
+                        leagues.values
+                            .filter { league -> league.protection == EnumProtectionStatus.PUBLIC }
+                            .forEach { league -> put(league.leagueID, league.describe()) }
+                    }
+                }
+
+                get("/protected") {
+                    val authToken = call.request.header(HttpHeaders.Authorization)
+                                    ?: return@get call.respond(HttpStatusCode.BadRequest, "No Authorization header")
+
+                    call.respondJsonObject {
+                        leagues.values
+                            .filter { league ->
+                                league.protection == EnumProtectionStatus.PROTECTED
+                                && argon2.matches(authToken, league.authentication)
+                            }.forEach { league -> put(league.leagueID, league.describe()) }
+                    }
+                }
+                get("/private") {
+                    val authToken = call.request.header(HttpHeaders.Authorization)
+                                    ?: return@get call.respond(HttpStatusCode.BadRequest, "No Authorization header")
+
+                    call.respondJsonObject {
+                        leagues.values
+                            .filter { league ->
+                                league.protection == EnumProtectionStatus.PRIVATE
+                                && argon2.matches(authToken, league.authentication)
+                            }.forEach { league -> put(league.leagueID, league.describe()) }
+                    }
+                }
+                get("/viewable") {
+                    val authToken = call.request.header(HttpHeaders.Authorization)
+
+                    call.respondJsonObject {
+                        leagues.values
+                            .filter { league ->
+                                league.protection == EnumProtectionStatus.PUBLIC
+                                || (authToken != null && argon2.matches(authToken, league.authentication))
+                            }.forEach { league -> put(league.leagueID, league.describe()) }
+                    }
                 }
 
                 post("/new") {
@@ -443,6 +510,54 @@ class LeagueRegistry(val json: Json, val httpClient: HttpClient, datablaseConfig
                     )
                         .doOnSuccess { call.respond(HttpStatusCode.Created, EmptyContent) }
                         .doOnFailure { call.respond(HttpStatusCode.BadRequest, it.toString()) }
+                }
+
+                get("/{league_id}") {
+                    val authToken = call.request.header(HttpHeaders.Authorization)
+
+                    val league = leagues[call.parameters.getOrFail("league_id")]
+                                 ?: return@get call.respondJsonObject(HttpStatusCode.NotFound) {
+                                     put("error", "League not found")
+                                 }
+
+                    if (league.protection == EnumProtectionStatus.PRIVATE) {
+                        if (authToken == null || !argon2.matches(authToken, league.authentication))
+                            return@get call.respondJsonObject(HttpStatusCode.NotFound) {
+                                put("error", "League not found")
+                            }
+                    }
+
+                    call.respond(league.describe())
+                }
+                delete("/{league_id}") {
+                    val authToken = call.request.header(HttpHeaders.Authorization)
+                                    ?: return@delete call.respond(HttpStatusCode.BadRequest, "No Authorization header")
+
+                    val league = leagues[call.parameters.getOrFail("league_id")]
+                                 ?: return@delete call.respondJsonObject(HttpStatusCode.NotFound) {
+                                     put("error", "League not found")
+                                 }
+
+                    val matches = argon2.matches(authToken, league.authentication)
+                    if (league.protection == EnumProtectionStatus.PRIVATE) {
+                        if (!matches) return@delete call.respondJsonObject(HttpStatusCode.NotFound) {
+                            put("error", "League not found")
+                        }
+                    }
+
+                    if (!matches) return@delete call.respondJsonObject(HttpStatusCode.Unauthorized) {
+                        put("error", "Invalid auth token")
+                    }
+
+                    datablase.await()
+                        .client
+                        .sql("DELETE FROM blasement_instances WHERE instance_id = $1")
+                        .bind("$1", league.leagueID)
+                        .await()
+
+                    leagues.remove(league.leagueID)
+
+                    call.respond(HttpStatusCode.OK, league.describe())
                 }
 
                 post("/{league_id}/new") {

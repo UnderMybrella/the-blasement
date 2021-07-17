@@ -16,9 +16,10 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.put
 import java.util.*
 
-fun interface BlaseballDatabasePlayerNamesEndpoint : BlaseballEndpoint {
+interface BlaseballDatabasePlayerNamesEndpoint : BlaseballEndpoint {
     object ChroniclerInefficient : BlaseballDatabasePlayerNamesEndpoint {
         override suspend fun getDataFor(league: BlasementLeague, request: Request): JsonElement? =
             league.httpClient.getChroniclerEntityList("player", league.clock.getTime())
@@ -30,6 +31,19 @@ fun interface BlaseballDatabasePlayerNamesEndpoint : BlaseballEndpoint {
                     }
                 }?.sortedBy { it.getString("name") }
                 ?.let(::JsonArray)
+
+        override fun describe(): JsonElement = JsonPrimitive("chronicler")
+    }
+
+    data class Static(val data: JsonElement?): BlaseballDatabasePlayerNamesEndpoint {
+        override suspend fun getDataFor(league: BlasementLeague, request: Request): JsonElement? =
+            data
+
+        override fun describe(): JsonElement? =
+            buildJsonObject {
+                put("type", "static")
+                put("data", data ?: JsonNull)
+            }
     }
 
     companion object {
@@ -46,7 +60,7 @@ fun interface BlaseballDatabasePlayerNamesEndpoint : BlaseballEndpoint {
                     is JsonObject ->
                         when (val type = config.getStringOrNull("type")?.lowercase(Locale.getDefault())) {
                             "chronicler" -> ChroniclerInefficient
-                            "static" -> config["data"].let { BlaseballDatabasePlayerNamesEndpoint { _, _ -> it } }
+                            "static" -> Static(config["data"])
                             else -> return KorneaResult.errorAsIllegalArgument(-1, "Unknown type '$type'")
                         }
                     else -> return KorneaResult.errorAsIllegalArgument(-1, "Unknown endpoint object '$config'")

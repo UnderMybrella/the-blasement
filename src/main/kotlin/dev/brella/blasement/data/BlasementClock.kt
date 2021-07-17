@@ -1,6 +1,7 @@
 package dev.brella.blasement.data
 
 import dev.brella.blasement.getDoubleOrNull
+import dev.brella.blasement.getLongOrNull
 import dev.brella.blasement.getStringOrNull
 import dev.brella.kornea.errors.common.KorneaResult
 import dev.brella.kornea.errors.common.successPooled
@@ -10,9 +11,12 @@ import kotlinx.datetime.asTimeSource
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import java.time.ZoneId
 import java.util.*
 import kotlin.time.Duration
+import kotlin.time.DurationUnit
 import kotlin.time.ExperimentalTime
 import kotlin.time.TimeMark
 import kotlin.time.TimeSource
@@ -31,6 +35,11 @@ interface BlasementClock {
             get() = Duration.INFINITE
 
         override suspend fun getTime(): Instant = time
+        override fun describe(): JsonObject =
+            buildJsonObject {
+                put("type", "static")
+                put("time", time.toString())
+            }
     }
 
     @OptIn(ExperimentalTime::class)
@@ -41,6 +50,7 @@ interface BlasementClock {
         override val temporalUpdateTime: Duration = Duration.seconds(1),
         override val eventStreamUpdateTime: Duration = Duration.seconds(4)
     ) : BlasementClock {
+/*
         constructor(
             start: Instant,
             clock: Clock,
@@ -48,6 +58,7 @@ interface BlasementClock {
             temporalUpdateTime: Duration = Duration.seconds(1),
             eventStreamUpdateTime: Duration = Duration.seconds(4)
         ) : this(start, clock.asTimeSource(), accelerationRate, temporalUpdateTime, eventStreamUpdateTime)
+*/
 
         constructor(
             start: Instant,
@@ -57,7 +68,7 @@ interface BlasementClock {
             eventStreamUpdateTime: Duration = Duration.seconds(4)
         ) : this(start, timeSource.markNow(), accelerationRate, temporalUpdateTime, eventStreamUpdateTime)
 
-        constructor(
+/*        constructor(
             clock: Clock,
             accelerationRate: Double = 1.0,
             temporalUpdateTime: Duration = Duration.seconds(1),
@@ -69,9 +80,18 @@ interface BlasementClock {
             accelerationRate: Double = 1.0,
             temporalUpdateTime: Duration = Duration.seconds(1),
             eventStreamUpdateTime: Duration = Duration.seconds(4)
-        ) : this(start, TimeSource.Monotonic, accelerationRate, temporalUpdateTime, eventStreamUpdateTime)
+        ) : this(start, TimeSource.Monotonic, accelerationRate, temporalUpdateTime, eventStreamUpdateTime)*/
 
         override suspend fun getTime(): Instant = start + (base.elapsedNow() * accelerationRate)
+
+        override fun describe(): JsonObject =
+            buildJsonObject {
+                put("type", "unbounded")
+                put("time", start.toString())
+                put("acceleration_rate", accelerationRate)
+                put("temporal_update_time", temporalUpdateTime.toDouble(DurationUnit.SECONDS))
+                put("event_stream_update_time", eventStreamUpdateTime.toDouble(DurationUnit.SECONDS))
+            }
     }
 
     @OptIn(ExperimentalTime::class)
@@ -90,6 +110,14 @@ interface BlasementClock {
         override suspend fun getTime(): Instant = clock.instant().let {
             Instant.fromEpochSeconds(it.epochSecond, it.nano)
         }
+
+        override fun describe(): JsonObject =
+            buildJsonObject {
+                put("type", "clock")
+                put("zone", clock.zone.id)
+                put("temporal_update_time", temporalUpdateTime.toDouble(DurationUnit.SECONDS))
+                put("event_stream_update_time", eventStreamUpdateTime.toDouble(DurationUnit.SECONDS))
+            }
     }
 
     @OptIn(ExperimentalTime::class)
@@ -99,19 +127,20 @@ interface BlasementClock {
     val eventStreamUpdateTime: Duration
 
     suspend fun getTime(): Instant
+    fun describe(): JsonElement?
 
     companion object {
         @OptIn(ExperimentalTime::class)
-        infix fun loadFrom(clockJson: JsonElement?): KorneaResult<BlasementClock> {
+        fun loadFrom(clockJson: JsonElement?, createdAt: Long, utc: jtClock): KorneaResult<BlasementClock> {
             return KorneaResult.successPooled(
                 when (clockJson) {
                     is JsonPrimitive -> {
                         val clock = clockJson.content
 
-                        if (clock.equals("utc", true)) BasedOnJavaClock.systemUTC()
+                        if (clock.equals("utc", true)) BasedOnJavaClock(utc)
                         else {
                             val parsed = runCatching { Instant.parse(clock) }
-                            if (parsed.isSuccess) UnboundedFrom(parsed.getOrThrow())
+                            if (parsed.isSuccess) UnboundedFrom(parsed.getOrThrow(), JavaTimeMark(utc, createdAt))
                             else return KorneaResult.errorAsIllegalArgument(-1, "Could not parse clock string '$clock' (${parsed.exceptionOrNull()?.stackTraceToString()})")
                         }
                     }
@@ -173,7 +202,7 @@ interface BlasementClock {
                                     "eventStreamUpdateMs"
                                 )?.let(Duration::milliseconds) ?: Duration.seconds(4)
 
-                                UnboundedFrom(time.getOrThrow(), accelerationRate, temporalUpdateTime, eventStreamUpdateTime)
+                                UnboundedFrom(time.getOrThrow(), JavaTimeMark(utc, clockJson.getLongOrNull("start") ?: createdAt), accelerationRate, temporalUpdateTime, eventStreamUpdateTime)
                             }
                             "clock", "java clock", "java_clock", "javaClock" -> {
                                 val clockInstance = when (val zoneString = clockJson.getStringOrNull("zone")) {

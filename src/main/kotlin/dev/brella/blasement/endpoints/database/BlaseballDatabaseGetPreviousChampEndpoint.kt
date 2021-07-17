@@ -13,10 +13,12 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.put
 import java.util.*
 
-fun interface BlaseballDatabaseGetPreviousChampEndpoint : BlaseballEndpoint {
+interface BlaseballDatabaseGetPreviousChampEndpoint : BlaseballEndpoint {
     companion object {
         val OVERBRACKET_CHAMPIONS = mapOf(
             1 to "23e4cbc1-e9cd-47fa-a35b-bfa06f726cb7", //Pies
@@ -62,7 +64,7 @@ fun interface BlaseballDatabaseGetPreviousChampEndpoint : BlaseballEndpoint {
                     is JsonObject ->
                         when (val type = config.getStringOrNull("type")?.lowercase(Locale.getDefault())) {
                             "queryLookup", "query_lookup", "query lookup" -> QueryLookup
-                            "static" -> config["data"].let { BlaseballDatabaseGetPreviousChampEndpoint { _, _ -> it } }
+                            "static" -> Static(config["data"])
                             else -> return KorneaResult.errorAsIllegalArgument(-1, "Unknown type '$type'")
                         }
                     else -> return KorneaResult.errorAsIllegalArgument(-1, "Unknown endpoint object '$config'")
@@ -81,6 +83,20 @@ fun interface BlaseballDatabaseGetPreviousChampEndpoint : BlaseballEndpoint {
                         parameter("id", id)
                     }
                 }
+
+        override fun describe(): JsonElement? =
+            JsonPrimitive("query_lookup")
+    }
+
+    data class Static(val data: JsonElement?): BlaseballDatabaseGetPreviousChampEndpoint {
+        override suspend fun getDataFor(league: BlasementLeague, request: Request): JsonElement? =
+            data
+
+        override fun describe(): JsonElement? =
+            buildJsonObject {
+                put("type", "static")
+                put("data", data ?: JsonNull)
+            }
     }
 
     override suspend fun getDataFor(league: BlasementLeague, request: Request): JsonElement?

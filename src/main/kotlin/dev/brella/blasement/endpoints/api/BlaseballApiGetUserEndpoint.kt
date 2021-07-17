@@ -9,7 +9,7 @@ import dev.brella.kornea.errors.common.successPooled
 import kotlinx.serialization.json.*
 import java.util.*
 
-fun interface BlaseballApiGetUserEndpoint : BlaseballEndpoint {
+interface BlaseballApiGetUserEndpoint : BlaseballEndpoint {
     sealed class GuestSibr : BlaseballApiGetUserEndpoint {
         object Season20 : GuestSibr() {
             /**
@@ -80,7 +80,20 @@ fun interface BlaseballApiGetUserEndpoint : BlaseballEndpoint {
                     put("googleId", JsonNull)
                     put("appleId", JsonNull)
                 }
+
+            override fun describe() = JsonPrimitive("guest_s20")
         }
+    }
+
+    data class Static(val element: JsonElement?) : BlaseballApiGetUserEndpoint {
+        override fun describe() =
+            buildJsonObject {
+                put("type", "static")
+                put("data", element ?: JsonNull)
+            }
+
+        override suspend fun getDataFor(league: BlasementLeague, request: Request): JsonElement? =
+            element
     }
 
     companion object {
@@ -88,16 +101,16 @@ fun interface BlaseballApiGetUserEndpoint : BlaseballEndpoint {
             return KorneaResult.successPooled(
                 when (config) {
                     JsonNull -> null
-                    null -> BlaseballApiGetUserEndpoint.GuestSibr.Season20
+                    null -> GuestSibr.Season20
                     is JsonPrimitive ->
                         when (val type = config.contentOrNull?.lowercase(Locale.getDefault())) {
-                            "guest s20", "guest_s20", "guests20" -> BlaseballApiGetUserEndpoint.GuestSibr.Season20
+                            "guest s20", "guest_s20", "guests20" -> GuestSibr.Season20
                             else -> return KorneaResult.errorAsIllegalArgument(-1, "Unknown endpoint string '$type'")
                         }
                     is JsonObject ->
                         when (val type = config.getStringOrNull("type")?.lowercase(Locale.getDefault())) {
-                            "guest s20", "guest_s20", "guests20" -> BlaseballApiGetUserEndpoint.GuestSibr.Season20
-                            "static" -> config["data"].let { BlaseballApiGetUserEndpoint { _, _ -> it } }
+                            "guest s20", "guest_s20", "guests20" -> GuestSibr.Season20
+                            "static" -> Static(config["data"])
                             else -> return KorneaResult.errorAsIllegalArgument(-1, "Unknown type '$type'")
                         }
                     else -> return KorneaResult.errorAsIllegalArgument(-1, "Unknown endpoint object '$config'")
