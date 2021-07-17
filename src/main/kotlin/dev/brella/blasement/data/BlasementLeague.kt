@@ -34,79 +34,90 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import java.util.concurrent.TimeUnit
 import kotlin.coroutines.CoroutineContext
 import kotlin.time.ExperimentalTime
 
 typealias Request = PipelineContext<Unit, ApplicationCall>
+enum class EnumProtectionStatus {
+    PUBLIC,
+    PROTECTED,
+    PRIVATE,
+}
 
 @Suppress("SuspendFunctionOnCoroutineScope", "BlockingMethodInNonBlockingContext")
 data class BlasementLeague(
     val leagueID: String,
     val json: Json,
     val httpClient: HttpClient,
-    /* Api */
-    val apiGetUser: BlaseballApiGetUserEndpoint?,
-    val apiGetUserRewards: BlaseballApiGetUserRewardsEndpoint?,
-    val apiGetActiveBets: BlaseballApiGetActiveBetsEndpoint?,
 
-    val apiGetIdols: BlaseballApiGetIdolsEndpoint?,
-    val apiGetTributes: BlaseballApiGetTributesEndpoint?,
+    val protection: EnumProtectionStatus,
+    val authentication: String,
+
+    val clock: BlasementClock,
+
+    /* Api */
+    val apiGetUser: BlaseballApiGetUserEndpoint? = null,
+    val apiGetUserRewards: BlaseballApiGetUserRewardsEndpoint? = null,
+    val apiGetActiveBets: BlaseballApiGetActiveBetsEndpoint? = null,
+
+    val apiGetIdols: BlaseballApiGetIdolsEndpoint? = null,
+    val apiGetTributes: BlaseballApiGetTributesEndpoint? = null,
 
     /* Database */
-    val databaseGlobalEvents: BlaseballDatabaseGlobalEventsEndpoint?,
-    val databaseShopSetup: BlaseballDatabaseShopSetupEndpoint?,
+    val databaseGlobalEvents: BlaseballDatabaseGlobalEventsEndpoint? = null,
+    val databaseShopSetup: BlaseballDatabaseShopSetupEndpoint? = null,
 
-    val databaseGlobalFeed: BlaseballDatabaseFeedEndpoint.Global?,
-    val databaseGameFeed: BlaseballDatabaseFeedEndpoint.Game?,
-    val databasePlayerFeed: BlaseballDatabaseFeedEndpoint.Player?,
-    val databaseTeamFeed: BlaseballDatabaseFeedEndpoint.Team?,
-    val databaseStoryFeed: BlaseballDatabaseFeedEndpoint.Story?,
-    val databaseFeedByPhase: BlaseballDatabaseFeedByPhaseEndpoint?,
+    val databaseGlobalFeed: BlaseballDatabaseFeedEndpoint.Global? = null,
+    val databaseGameFeed: BlaseballDatabaseFeedEndpoint.Game? = null,
+    val databasePlayerFeed: BlaseballDatabaseFeedEndpoint.Player? = null,
+    val databaseTeamFeed: BlaseballDatabaseFeedEndpoint.Team? = null,
+    val databaseStoryFeed: BlaseballDatabaseFeedEndpoint.Story? = null,
+    val databaseFeedByPhase: BlaseballDatabaseFeedByPhaseEndpoint? = null,
 
-    val databasePlayerNames: BlaseballDatabasePlayerNamesEndpoint?,
-    val databasePlayers: BlaseballDatabasePlayersEndpoint?,
-    val databaseOffseasonRecap: BlaseballDatabaseOffseasonRecapEndpoint?,
-    val databaseOffseasonSetup: BlaseballDatabaseOffseasonSetupEndpoint?,
+    val databasePlayerNames: BlaseballDatabasePlayerNamesEndpoint? = null,
+    val databasePlayers: BlaseballDatabasePlayersEndpoint? = null,
+    val databaseOffseasonRecap: BlaseballDatabaseOffseasonRecapEndpoint? = null,
+    val databaseOffseasonSetup: BlaseballDatabaseOffseasonSetupEndpoint? = null,
 
-    val databaseSunSun: BlaseballDatabaseSunSunEndpoint?,
-    val databaseVault: BlaseballDatabaseVaultEndpoint?,
+    val databaseSunSun: BlaseballDatabaseSunSunEndpoint? = null,
+    val databaseVault: BlaseballDatabaseVaultEndpoint? = null,
 
-    val databaseAllDivisions: BlaseballDatabaseAllDivisionsEndpoint?,
-    val databaseAllTeams: BlaseballDatabaseAllTeamsEndpoint?,
+    val databaseAllDivisions: BlaseballDatabaseAllDivisionsEndpoint? = null,
+    val databaseAllTeams: BlaseballDatabaseAllTeamsEndpoint? = null,
 
-    val databaseCommunityChestProgress: BlaseballDatabaseCommunityChestProgressEndpoint?,
-    val databaseBonusResults: BlaseballDatabaseBonusResultsEndpoint?,
-    val databaseDecreeResults: BlaseballDatabaseDecreeResultsEndpoint?,
-    val databaseEventResults: BlaseballDatabaseEventResultsEndpoint?,
+    val databaseCommunityChestProgress: BlaseballDatabaseCommunityChestProgressEndpoint? = null,
+    val databaseBonusResults: BlaseballDatabaseBonusResultsEndpoint? = null,
+    val databaseDecreeResults: BlaseballDatabaseDecreeResultsEndpoint? = null,
+    val databaseEventResults: BlaseballDatabaseEventResultsEndpoint? = null,
 
-    val databaseGameById: BlaseballDatabaseGameByIdEndpoint?,
-    val databaseGetPreviousChamp: BlaseballDatabaseGetPreviousChampEndpoint?,
-    val databaseGiftProgress: BlaseballDatabaseGiftProgressEndpoint?,
+    val databaseGameById: BlaseballDatabaseGameByIdEndpoint? = null,
+    val databaseGetPreviousChamp: BlaseballDatabaseGetPreviousChampEndpoint? = null,
+    val databaseGiftProgress: BlaseballDatabaseGiftProgressEndpoint? = null,
 
-    val databaseItems: BlaseballDatabaseItemsEndpoint?,
-    val databasePlayersByItemId: BlaseballDatabasePlayersByItemEndpoint?,
-    val databasePlayoffs: BlaseballDatabasePlayoffsEndpoint?,
-    val databaseRenovationProgress: BlaseballDatabaseRenovationProgressEndpoint?,
-    val databaseRenovations: BlaseballDatabaseRenovationsEndpoint?,
+    val databaseItems: BlaseballDatabaseItemsEndpoint? = null,
+    val databasePlayersByItemId: BlaseballDatabasePlayersByItemEndpoint? = null,
+    val databasePlayoffs: BlaseballDatabasePlayoffsEndpoint? = null,
+    val databaseRenovationProgress: BlaseballDatabaseRenovationProgressEndpoint? = null,
+    val databaseRenovations: BlaseballDatabaseRenovationsEndpoint? = null,
 
-    val databaseSubleague: BlaseballDatabaseSubleagueEndpoint?,
-    val databaseTeam: BlaseballDatabaseTeamEndpoint?,
-    val databaseTeamElectionStats: BlaseballDatabaseTeamElectionStatsEndpoint?,
+    val databaseSubleague: BlaseballDatabaseSubleagueEndpoint? = null,
+    val databaseTeam: BlaseballDatabaseTeamEndpoint? = null,
+    val databaseTeamElectionStats: BlaseballDatabaseTeamElectionStatsEndpoint? = null,
 
-    val eventsStreamData: BlaseballEventsStreamDataEndpoint?,
-
-    val clock: BlasementClock
+    val eventsStreamData: BlaseballEventsStreamDataEndpoint? = null
 ) : CoroutineScope {
     override val coroutineContext: CoroutineContext = SupervisorJob()
     val siteData = BlasementSiteData(
         httpClient, indexHtmlTransformers = listOf(
-            SiteTransformer.InitialTextTransformer.ReplaceStaticAssets("/leagues/underground")
+            SiteTransformer.InitialTextTransformer.ReplaceStaticAssets("/leagues/$leagueID")
         ),
         mainJsTransformers = listOf(
-            SiteTransformer.InitialTextTransformer.ReplaceApiCalls("/leagues/underground"),
-            SiteTransformer.FinalTextTransformer.ReplaceTimeWithWebsocket("/leagues/underground")
+            SiteTransformer.InitialTextTransformer.ReplaceApiCalls("/leagues/$leagueID"),
+            SiteTransformer.FinalTextTransformer.ReplaceTimeWithWebsocket("/leagues/$leagueID")
         ),
         twoJsTransformers = listOf(),
         mainCssTransformers = listOf(),

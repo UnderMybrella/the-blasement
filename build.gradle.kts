@@ -16,6 +16,7 @@ application {
 
 repositories {
     mavenCentral()
+    maven(url = "https://maven.brella.dev")
 }
 
 dependencies {
@@ -36,6 +37,18 @@ dependencies {
     implementation("io.ktor:ktor-client-encoding:$ktor_version")
 
     implementation("com.github.ben-manes.caffeine:caffeine:3.0.3")
+
+    implementation("com.arakelian:java-jq:1.1.0")
+
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-reactor:1.5.0")
+
+    implementation("org.springframework.data:spring-data-r2dbc:1.3.0")
+    implementation("org.springframework.security:spring-security-crypto:5.5.1")
+    implementation("org.bouncycastle:bcpkix-jdk15on:1.69")
+    implementation("io.r2dbc:r2dbc-postgresql:0.8.7.RELEASE")
+    implementation("io.r2dbc:r2dbc-pool:0.9.0.M1")
+
+    implementation("dev.brella:kornea-errors:2.2.3-alpha")
 
     testImplementation("io.ktor:ktor-server-tests:$ktor_version")
 }

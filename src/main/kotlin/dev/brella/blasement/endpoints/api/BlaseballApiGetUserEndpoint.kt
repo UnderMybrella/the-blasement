@@ -3,14 +3,10 @@ package dev.brella.blasement.endpoints.api
 import dev.brella.blasement.data.BlasementLeague
 import dev.brella.blasement.data.Request
 import dev.brella.blasement.endpoints.BlaseballEndpoint
-import io.ktor.application.*
-import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.JsonNull
-import kotlinx.serialization.json.add
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.put
-import kotlinx.serialization.json.putJsonArray
-import kotlinx.serialization.json.putJsonObject
+import dev.brella.blasement.getStringOrNull
+import dev.brella.kornea.errors.common.KorneaResult
+import dev.brella.kornea.errors.common.successPooled
+import kotlinx.serialization.json.*
 import java.util.*
 
 fun interface BlaseballApiGetUserEndpoint : BlaseballEndpoint {
@@ -87,5 +83,26 @@ fun interface BlaseballApiGetUserEndpoint : BlaseballEndpoint {
         }
     }
 
-    override suspend fun getDataFor(league: BlasementLeague, request: Request): JsonElement?
+    companion object {
+        infix fun loadFrom(config: JsonElement?): KorneaResult<BlaseballApiGetUserEndpoint?> {
+            return KorneaResult.successPooled(
+                when (config) {
+                    JsonNull -> null
+                    null -> BlaseballApiGetUserEndpoint.GuestSibr.Season20
+                    is JsonPrimitive ->
+                        when (val type = config.contentOrNull?.lowercase(Locale.getDefault())) {
+                            "guest s20", "guest_s20", "guests20" -> BlaseballApiGetUserEndpoint.GuestSibr.Season20
+                            else -> return KorneaResult.errorAsIllegalArgument(-1, "Unknown endpoint string '$type'")
+                        }
+                    is JsonObject ->
+                        when (val type = config.getStringOrNull("type")?.lowercase(Locale.getDefault())) {
+                            "guest s20", "guest_s20", "guests20" -> BlaseballApiGetUserEndpoint.GuestSibr.Season20
+                            "static" -> config["data"].let { BlaseballApiGetUserEndpoint { _, _ -> it } }
+                            else -> return KorneaResult.errorAsIllegalArgument(-1, "Unknown type '$type'")
+                        }
+                    else -> return KorneaResult.errorAsIllegalArgument(-1, "Unknown endpoint object '$config'")
+                }
+            )
+        }
+    }
 }

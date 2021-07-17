@@ -5,12 +5,15 @@ import io.ktor.client.*
 import io.ktor.client.request.*
 import io.ktor.http.*
 import io.ktor.response.*
+import io.r2dbc.spi.Row
 import kotlinx.coroutines.delay
 import kotlinx.datetime.Instant
 import kotlinx.serialization.json.*
 import kotlin.time.Duration
 import kotlin.time.ExperimentalTime
 import kotlin.time.measureTime
+
+inline fun property(key: String) = System.getProperty(key) ?: System.getenv(key)
 
 public suspend inline fun HttpClient.getChroniclerVersionsBefore(type: String, at: Instant, builder: HttpRequestBuilder.() -> Unit = {}) =
     getChroniclerVersionsBefore(type, at.toString(), builder)
@@ -102,5 +105,17 @@ public inline fun JsonObject.getIntOrNull(key: String) =
 public inline fun JsonObject.getLongOrNull(key: String) =
     (get(key) as? JsonPrimitive)?.longOrNull
 
+public inline fun JsonObject.getDoubleOrNull(key: String) =
+    (get(key) as? JsonPrimitive)?.doubleOrNull
+
+public inline fun JsonObject.getDoubleOrNull(vararg keys: String) =
+    keys.firstNotNullOfOrNull { (get(it) as? JsonPrimitive)?.doubleOrNull }
+
 public inline fun JsonObject.getBooleanOrNull(key: String) =
     (get(key) as? JsonPrimitive)?.booleanOrNull
+
+public inline fun <reified T> Row.get(name: String): T? =
+    get(name, T::class.java)
+
+public inline fun <reified T> Row.getValue(name: String): T =
+    get(name, T::class.java)

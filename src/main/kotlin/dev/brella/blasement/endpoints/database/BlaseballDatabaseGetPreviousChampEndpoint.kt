@@ -4,9 +4,17 @@ import dev.brella.blasement.data.BlasementLeague
 import dev.brella.blasement.data.Request
 import dev.brella.blasement.endpoints.BlaseballEndpoint
 import dev.brella.blasement.getChroniclerEntity
+import dev.brella.blasement.getStringOrNull
+import dev.brella.kornea.errors.common.KorneaResult
+import dev.brella.kornea.errors.common.successPooled
 import io.ktor.application.*
 import io.ktor.client.request.*
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
+import java.util.*
 
 fun interface BlaseballDatabaseGetPreviousChampEndpoint : BlaseballEndpoint {
     companion object {
@@ -40,6 +48,27 @@ fun interface BlaseballDatabaseGetPreviousChampEndpoint : BlaseballEndpoint {
             21 to "f02aeae2-5e6a-4098-9842-02d2273f25c7", //Sunbeams
             22 to "b63be8c2-576a-4d6e-8daf-814f8bcea96f", //Dale
         )
+
+        infix fun loadFrom(config: JsonElement?): KorneaResult<BlaseballDatabaseGetPreviousChampEndpoint?> {
+            return KorneaResult.successPooled(
+                when (config) {
+                    JsonNull -> null
+                    null -> QueryLookup
+                    is JsonPrimitive ->
+                        when (val type = config.contentOrNull?.lowercase(Locale.getDefault())) {
+                            "queryLookup", "query_lookup", "query lookup" -> QueryLookup
+                            else -> return KorneaResult.errorAsIllegalArgument(-1, "Unknown endpoint string '$type'")
+                        }
+                    is JsonObject ->
+                        when (val type = config.getStringOrNull("type")?.lowercase(Locale.getDefault())) {
+                            "queryLookup", "query_lookup", "query lookup" -> QueryLookup
+                            "static" -> config["data"].let { BlaseballDatabaseGetPreviousChampEndpoint { _, _ -> it } }
+                            else -> return KorneaResult.errorAsIllegalArgument(-1, "Unknown type '$type'")
+                        }
+                    else -> return KorneaResult.errorAsIllegalArgument(-1, "Unknown endpoint object '$config'")
+                }
+            )
+        }
     }
 
     object QueryLookup : BlaseballDatabaseGetPreviousChampEndpoint {

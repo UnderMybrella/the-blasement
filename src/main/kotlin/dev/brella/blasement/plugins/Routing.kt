@@ -10,6 +10,7 @@ import dev.brella.blasement.endpoints.api.BlaseballApiGetTributesEndpoint
 import dev.brella.blasement.endpoints.api.BlaseballApiGetUserEndpoint
 import dev.brella.blasement.endpoints.api.BlaseballApiGetUserRewardsEndpoint
 import dev.brella.blasement.endpoints.database.*
+import dev.brella.blasement.property
 import io.ktor.routing.*
 import io.ktor.http.*
 import io.ktor.features.*
@@ -23,6 +24,15 @@ import io.ktor.client.features.json.serializer.*
 import io.ktor.http.cio.websocket.*
 import kotlinx.datetime.Clock
 import kotlinx.datetime.Instant
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.add
+import kotlinx.serialization.json.addJsonObject
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonArray
+import kotlinx.serialization.json.putJsonObject
+import java.io.File
 import java.time.Duration
 
 val json = kotlinx.serialization.json.Json {
@@ -48,10 +58,21 @@ val httpClient = HttpClient(OkHttp) {
     }
 }
 
-val registry = LeagueRegistry()
-
 fun Application.configureRouting() {
     try {
+        val registry = LeagueRegistry(
+            json,
+            httpClient,
+            File(
+                environment.config.propertyOrNull("blasement.r2dbc_file")?.getString()
+                ?: property("blasement_r2dbc")
+                ?: "blasement-r2dbc.json"
+            ).takeIf(File::exists)
+                ?.readText()
+                ?.let(json::parseToJsonElement)
+                ?.jsonObject ?: error("No r2dbc config provided!")
+        )
+
         install(DoubleReceive)
         install(io.ktor.websocket.WebSockets) {
             pingPeriod = Duration.ofSeconds(15)
@@ -62,47 +83,6 @@ fun Application.configureRouting() {
 
         routing {
             registry.setupRouting(this)
-        }
-
-        registry.registerLeague("underground", json, httpClient) {
-            api {
-                getUser = BlaseballApiGetUserEndpoint.GuestSibr.Season20
-                getUserRewards = BlaseballApiGetUserRewardsEndpoint.GuestSibr.Season20
-                getActiveBets = BlaseballApiGetActiveBetsEndpoint.GuestSibr.Season20
-                getIdols = BlaseballApiGetIdolsEndpoint.Chronicler
-                getTribute = BlaseballApiGetTributesEndpoint.Chronicler
-
-                getRisingStars = BlaseballApiGetRisingStarsEndpoint.Chronicler
-            }
-
-            database {
-                feed {
-                    setAllUpnuts { arrayOf(TGB) }
-                }
-
-                globalEvents = buildGlobalEvents {
-                    this["brella"] = "\uD83C\uDFB5 Under My Umbrella \uD83C\uDFB5"
-                    this["upnuts"] = "What's Up, Scales?"
-                    this["tbc"] = "Now that Blaseball isn't updating every ten minutes, I can actually work on this"
-                    this["parker"] = "Parker's still in The Vault, right?"
-                }
-
-//                databaseGlobalEvents = BlaseballGlobalEventsEndpoint.Chronicler
-                shopSetup = BlaseballDatabaseShopSetupEndpoint.Chronicler
-                playerNamesIds = BlaseballDatabasePlayerNamesEndpoint.ChroniclerInefficient
-                players = BlaseballDatabasePlayersEndpoint.Chronicler
-                offseasonSetup = BlaseballDatabaseOffseasonSetupEndpoint.Chronicler
-                vault = BlaseballDatabaseVaultEndpoint.Chronicler
-                sunSun = BlaseballDatabaseSunSunEndpoint.Chronicler
-
-                getPreviousChamp = BlaseballDatabaseGetPreviousChampEndpoint.QueryLookup
-                items = BlaseballDatabaseItemsEndpoint.Chronicler
-                playersByItemId = BlaseballDatabasePlayersByItemEndpoint.ChroniclerInefficient
-            }
-
-            eventsStreamData = BlaseballEventsStreamDataEndpoint.Chronicler
-
-            clock = BlasementClock.UnboundedFrom(Instant.parse("2021-06-15T00:00:00Z"), accelerationRate = 2.5) //BlasementClock.Static(time)
         }
     } catch (th: Throwable) {
         th.printStackTrace()
