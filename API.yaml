@@ -1,0 +1,14 @@
+openapi: 3.0.3
+info:
+  title: Blasement
+  description: Welcome to the Blasement
+  version: 1.0.0
+servers:
+  - url: 'https://blasement.brella.dev'
+paths:
+  /api/leagues/public:
+    get:
+      description: Returns a list of public instances available
+      responses:
+        '200':
+          description: A list of public instances

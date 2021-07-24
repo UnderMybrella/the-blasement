@@ -100,7 +100,7 @@ class BlasementLeagueBuilder {
     lateinit var clock: BlasementClock
     var siteDataClock: BlasementClock? = null
 
-    lateinit var protectionStatus: EnumProtectionStatus
+    lateinit var visibilityStatus: EnumVisibilityStatus
     lateinit var authentication: String
 
     fun build(): BlasementLeague =
@@ -109,7 +109,7 @@ class BlasementLeagueBuilder {
             json = json,
             httpClient = http,
 
-            protection = protectionStatus,
+            visibility = visibilityStatus,
             authentication = authentication,
 
             clock = clock,
@@ -175,7 +175,7 @@ inline fun buildBlasementLeague(
     http: HttpClient? = null,
     clock: BlasementClock? = null,
     siteDataClock: BlasementClock? = clock,
-    protection: EnumProtectionStatus? = null,
+    protection: EnumVisibilityStatus? = null,
     authentication: String? = null,
     block: BlasementLeagueBuilder.() -> Unit
 ): BlasementLeague {
@@ -186,7 +186,7 @@ inline fun buildBlasementLeague(
     if (http != null) builder.http = http
     if (clock != null) builder.clock = clock
     if (siteDataClock != null) builder.siteDataClock = siteDataClock
-    if (protection != null) builder.protectionStatus = protection
+    if (protection != null) builder.visibilityStatus = protection
     if (authentication != null) builder.authentication = authentication
 
     builder.block()

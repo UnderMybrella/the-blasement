@@ -67,11 +67,11 @@ class LeagueRegistry(val json: Json, val httpClient: HttpClient, datablaseConfig
         http: HttpClient? = null,
         clock: BlasementClock? = null,
         siteDataClock: BlasementClock? = clock,
-        protection: EnumProtectionStatus? = null,
+        visibility: EnumVisibilityStatus? = null,
         authentication: String? = null,
         block: BlasementLeagueBuilder.() -> Unit
     ) =
-        registerTemporaryLeague(buildBlasementLeague(leagueID, json, http, clock, siteDataClock, protection, authentication, block = block))
+        registerTemporaryLeague(buildBlasementLeague(leagueID, json, http, clock, siteDataClock, visibility, authentication, block = block))
 
     public suspend fun registerLeague(config: JsonObject, authentication: String, createdAt: Long = utc.millis(), leagueID: String? = null): KorneaResult<BlasementLeague> =
         parseLeagueFromConfig(config, authentication, createdAt = createdAt, leagueID = leagueID)
@@ -114,13 +114,13 @@ class LeagueRegistry(val json: Json, val httpClient: HttpClient, datablaseConfig
             buildBlasementLeague(leagueID, json, httpClient, authentication = authentication) {
                 config.getStringOrNull("league_id")?.let { this.leagueID = it }
 
-                protectionStatus =
-                    when (val protectionStatus = config.getStringOrNull("protection")?.lowercase(Locale.getDefault())) {
-                        "private" -> EnumProtectionStatus.PRIVATE
-                        "protected" -> EnumProtectionStatus.PROTECTED
-                        "public" -> EnumProtectionStatus.PUBLIC
-                        null -> EnumProtectionStatus.PUBLIC
-                        else -> return KorneaResult.errorAsIllegalArgument(-1, "Unknown protection status '$protectionStatus'")
+                visibilityStatus =
+                    when (val visibilityStatus = config.getStringOrNull("visibility")?.lowercase(Locale.getDefault())) {
+                        "private" -> EnumVisibilityStatus.PRIVATE
+                        "protected" -> EnumVisibilityStatus.PROTECTED
+                        "public" -> EnumVisibilityStatus.PUBLIC
+                        null -> EnumVisibilityStatus.PUBLIC
+                        else -> return KorneaResult.errorAsIllegalArgument(-1, "Unknown visibility status '$visibilityStatus'")
                     }
 
                 clock = BlasementClock
@@ -373,7 +373,7 @@ class LeagueRegistry(val json: Json, val httpClient: HttpClient, datablaseConfig
 
         val league = leagues[call.parameters.getOrFail("league_id")] ?: return null
 
-        if (league.protection == EnumProtectionStatus.PRIVATE)
+        if (league.visibility == EnumVisibilityStatus.PRIVATE)
             if (authToken == null || !argon2.matches(authToken, league.authentication)) return null
 
         return league
@@ -384,7 +384,7 @@ class LeagueRegistry(val json: Json, val httpClient: HttpClient, datablaseConfig
 
         val league = leagues[call.parameters.getOrFail("league_id")] ?: return null
 
-        if (league.protection == EnumProtectionStatus.PRIVATE)
+        if (league.visibility == EnumVisibilityStatus.PRIVATE)
             if (authToken == null || !argon2.matches(authToken, league.authentication)) return null
 
         return league
@@ -401,11 +401,6 @@ class LeagueRegistry(val json: Json, val httpClient: HttpClient, datablaseConfig
                 println("Endpoint: ${call.request.uri.trim().substringAfter("/leagues/underground")}")
                 league.handleIndexHtml(this)
             }
-
-//            getWithLeagueBody("/player/{...?}") { league ->
-//                println("Endpoint: ${call.request.uri.trim().substringAfter("/leagues/underground")}")
-//                league.handleIndexHtml(this)
-//            }
 
             getLeague("/api/getUser", BlasementLeague::apiGetUser)
             getLeague("/api/getUserRewards", BlasementLeague::apiGetUserRewards)
@@ -472,9 +467,12 @@ class LeagueRegistry(val json: Json, val httpClient: HttpClient, datablaseConfig
                 get("/public") {
                     call.respondJsonObject {
                         leagues.values
-                            .filter { league -> league.protection == EnumProtectionStatus.PUBLIC }
+                            .filter { league -> league.visibility == EnumVisibilityStatus.PUBLIC }
                             .forEach { league -> put(league.leagueID, league.describe()) }
                     }
+                }
+                route("/public") {
+                    handle { call.respond(HttpStatusCode.MethodNotAllowed, EmptyContent) }
                 }
 
                 get("/protected") {
@@ -484,7 +482,7 @@ class LeagueRegistry(val json: Json, val httpClient: HttpClient, datablaseConfig
                     call.respondJsonObject {
                         leagues.values
                             .filter { league ->
-                                league.protection == EnumProtectionStatus.PROTECTED
+                                league.visibility == EnumVisibilityStatus.PROTECTED
                                 && argon2.matches(authToken, league.authentication)
                             }.forEach { league -> put(league.leagueID, league.describe()) }
                     }
@@ -496,7 +494,7 @@ class LeagueRegistry(val json: Json, val httpClient: HttpClient, datablaseConfig
                     call.respondJsonObject {
                         leagues.values
                             .filter { league ->
-                                league.protection == EnumProtectionStatus.PRIVATE
+                                league.visibility == EnumVisibilityStatus.PRIVATE
                                 && argon2.matches(authToken, league.authentication)
                             }.forEach { league -> put(league.leagueID, league.describe()) }
                     }
@@ -507,15 +505,15 @@ class LeagueRegistry(val json: Json, val httpClient: HttpClient, datablaseConfig
                     call.respondJsonObject {
                         leagues.values
                             .filter { league ->
-                                league.protection == EnumProtectionStatus.PUBLIC
+                                league.visibility == EnumVisibilityStatus.PUBLIC
                                 || (authToken != null && argon2.matches(authToken, league.authentication))
                             }.forEach { league -> put(league.leagueID, league.describe()) }
                     }
                 }
 
-                post("/new") {
+                post<JsonObject>("/new") { config ->
                     registerLeague(
-                        call.receive(),
+                        config,
                         argon2.encode(
                             call.request.header(HttpHeaders.Authorization)
                             ?: return@post call.respond(HttpStatusCode.BadRequest, "No Authorization header")
@@ -533,7 +531,7 @@ class LeagueRegistry(val json: Json, val httpClient: HttpClient, datablaseConfig
                                      put("error", "League not found")
                                  }
 
-                    if (league.protection == EnumProtectionStatus.PRIVATE) {
+                    if (league.visibility == EnumVisibilityStatus.PRIVATE) {
                         if (authToken == null || !argon2.matches(authToken, league.authentication))
                             return@get call.respondJsonObject(HttpStatusCode.NotFound) {
                                 put("error", "League not found")
@@ -552,7 +550,7 @@ class LeagueRegistry(val json: Json, val httpClient: HttpClient, datablaseConfig
                                  }
 
                     val matches = argon2.matches(authToken, league.authentication)
-                    if (league.protection == EnumProtectionStatus.PRIVATE) {
+                    if (league.visibility == EnumVisibilityStatus.PRIVATE) {
                         if (!matches) return@delete call.respondJsonObject(HttpStatusCode.NotFound) {
                             put("error", "League not found")
                         }
@@ -572,13 +570,12 @@ class LeagueRegistry(val json: Json, val httpClient: HttpClient, datablaseConfig
 
                     call.respond(HttpStatusCode.OK, league.describe())
                 }
-
-                post("/{league_id}/new") {
+                put<JsonObject>("/{league_id}") { config ->
                     registerLeague(
-                        call.receive(),
+                        config,
                         argon2.encode(
                             call.request.header(HttpHeaders.Authorization)
-                            ?: return@post call.respond(HttpStatusCode.BadRequest, "No Authorization header")
+                            ?: return@put call.respond(HttpStatusCode.BadRequest, "No Authorization header")
                         ),
                         leagueID = call.parameters["league_id"]
                     )

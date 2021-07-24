@@ -44,7 +44,7 @@ import kotlin.coroutines.CoroutineContext
 import kotlin.time.ExperimentalTime
 
 typealias Request = PipelineContext<Unit, ApplicationCall>
-enum class EnumProtectionStatus {
+enum class EnumVisibilityStatus {
     PUBLIC,
     PROTECTED,
     PRIVATE,
@@ -56,7 +56,7 @@ data class BlasementLeague(
     val json: Json,
     val httpClient: HttpClient,
 
-    val protection: EnumProtectionStatus,
+    val visibility: EnumVisibilityStatus,
     val authentication: String,
 
     val clock: BlasementClock,
@@ -201,7 +201,7 @@ data class BlasementLeague(
     fun describe(): JsonObject =
         buildJsonObject {
             put("league_id", leagueID)
-            put("protection", protection.name)
+            put("protection", visibility.name)
 
             put("clock", clock.describe() ?: JsonNull)
 
