@@ -60,6 +60,7 @@ data class BlasementLeague(
     val authentication: String,
 
     val clock: BlasementClock,
+    val siteDataClock: BlasementClock = clock,
 
     /* Api */
     val apiGetUser: BlaseballApiGetUserEndpoint? = null,
@@ -125,7 +126,7 @@ data class BlasementLeague(
         ),
         twoJsTransformers = listOf(),
         mainCssTransformers = listOf(),
-        clock
+        siteDataClock
     )
 
     val streamData: SharedFlow<String> =

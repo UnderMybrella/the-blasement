@@ -113,6 +113,10 @@ class BlasementSiteData(
                         parameter("count", 50)
                         parameter("before", now)
                         if (after != null) parameter("after", after)
+
+                        timeout {
+                            socketTimeoutMillis = HttpTimeout.INFINITE_TIMEOUT_MS
+                        }
                     }.data
 
                     if (results == null) {

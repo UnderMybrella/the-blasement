@@ -12,7 +12,13 @@ import dev.brella.blasement.endpoints.database.*
 import dev.brella.blasement.getStringOrNull
 import dev.brella.blasement.getValue
 import dev.brella.blasement.respondJsonObject
-import dev.brella.kornea.errors.common.*
+import dev.brella.kornea.errors.common.KorneaResult
+import dev.brella.kornea.errors.common.cast
+import dev.brella.kornea.errors.common.consumeOnSuccessGetOrBreak
+import dev.brella.kornea.errors.common.doOnFailure
+import dev.brella.kornea.errors.common.doOnSuccess
+import dev.brella.kornea.errors.common.flatMapOrSelf
+import dev.brella.kornea.errors.common.successPooled
 import io.ktor.application.*
 import io.ktor.client.*
 import io.ktor.client.utils.*
@@ -37,7 +43,6 @@ import org.springframework.r2dbc.core.await
 import org.springframework.r2dbc.core.awaitRowsUpdated
 import org.springframework.security.crypto.argon2.Argon2PasswordEncoder
 import java.util.*
-import kotlin.collections.HashMap
 import kotlin.coroutines.CoroutineContext
 import kotlin.reflect.KProperty1
 import kotlin.time.ExperimentalTime
@@ -61,11 +66,12 @@ class LeagueRegistry(val json: Json, val httpClient: HttpClient, datablaseConfig
         json: Json? = null,
         http: HttpClient? = null,
         clock: BlasementClock? = null,
+        siteDataClock: BlasementClock? = clock,
         protection: EnumProtectionStatus? = null,
         authentication: String? = null,
         block: BlasementLeagueBuilder.() -> Unit
     ) =
-        registerTemporaryLeague(buildBlasementLeague(leagueID, json, http, clock, protection, authentication, block = block))
+        registerTemporaryLeague(buildBlasementLeague(leagueID, json, http, clock, siteDataClock, protection, authentication, block = block))
 
     public suspend fun registerLeague(config: JsonObject, authentication: String, createdAt: Long = utc.millis(), leagueID: String? = null): KorneaResult<BlasementLeague> =
         parseLeagueFromConfig(config, authentication, createdAt = createdAt, leagueID = leagueID)
@@ -120,6 +126,13 @@ class LeagueRegistry(val json: Json, val httpClient: HttpClient, datablaseConfig
                 clock = BlasementClock
                     .loadFrom(config["clock"], createdAt, utc)
                     .consumeOnSuccessGetOrBreak { return it.cast() }
+
+                siteDataClock = config["siteDataClock"]
+                    ?.let { json ->
+                        BlasementClock
+                            .loadFrom(json, createdAt, utc)
+                            .consumeOnSuccessGetOrBreak { return it.cast() }
+                    }
 
                 api {
                     getActiveBets = BlaseballApiGetActiveBetsEndpoint
@@ -573,6 +586,10 @@ class LeagueRegistry(val json: Json, val httpClient: HttpClient, datablaseConfig
                         .doOnFailure { call.respond(HttpStatusCode.BadRequest, it.toString()) }
                 }
             }
+        }
+
+        root.get("/static/{...}") {
+            call.respondRedirect("https://d35iw2jmbg6ut8.cloudfront.net${call.request.uri}", false)
         }
     }
 }
