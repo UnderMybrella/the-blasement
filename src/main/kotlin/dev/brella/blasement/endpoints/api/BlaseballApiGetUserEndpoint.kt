@@ -52,14 +52,16 @@ interface BlaseballApiGetUserEndpoint : BlaseballEndpoint {
                     put("idol", JsonNull)
                     put("packSize", 8)
                     putJsonObject("snacks") {
-                        put("Votes", 1)
+                        put("Forbidden_Knowledge_Access", 1)
+                        put("Stadium_Access", 1)
+                        put("Wills_Access", 1)
                     }
                     put("lightMode", false)
                     putJsonArray("spread") {}
                     putJsonArray("snackOrder") {
-                        add("Votes")
-                        add("E")
-                        add("E")
+                        add("Forbidden_Knowledge_Access")
+                        add("Stadium_Access")
+                        add("Wills_Access")
                         add("E")
                         add("E")
                         add("E")
@@ -69,11 +71,11 @@ interface BlaseballApiGetUserEndpoint : BlaseballEndpoint {
                     put("favNumber", -1)
                     put("coffee", -1)
                     putJsonObject("trackers") {
-                        put("BETS", 0)
-                        put("VOTES_CAST", 0)
-                        put("SNACKS_BOUGHT", 0)
-                        put("SNACK_UPGRADES", 0)
-                        put("BEGS", 0)
+                        put("BEGS", 3)
+                        put("BETS", 10)
+                        put("VOTES_CAST", 1)
+                        put("SNACKS_BOUGHT", 3)
+                        put("SNACK_UPGRADES", 3)
                     }
                     put("verified", true)
                     put("facebookId", JsonNull)

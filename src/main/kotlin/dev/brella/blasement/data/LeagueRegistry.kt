@@ -393,12 +393,12 @@ class LeagueRegistry(val json: Json, val httpClient: HttpClient, datablaseConfig
     public fun setupRouting(root: Route) {
         root.route("/leagues/{league_id}") {
             getWithLeagueBody("/") { league ->
-                println("Endpoint: ${call.request.uri.trim().substringAfter("/leagues/underground")}")
+                println("Endpoint: ${call.request.uri.trim().substringAfter("/leagues/${call.parameters["league_id"]}")}")
                 league.handleIndexHtml(this)
             }
 
             getWithLeagueBody("/{...}") { league ->
-                println("Endpoint: ${call.request.uri.trim().substringAfter("/leagues/underground")}")
+                println("Endpoint: ${call.request.uri.trim().substringAfter("/leagues/${call.parameters["league_id"]}")}")
                 league.handleIndexHtml(this)
             }
 
@@ -407,6 +407,7 @@ class LeagueRegistry(val json: Json, val httpClient: HttpClient, datablaseConfig
             getLeague("/api/getActiveBets", BlasementLeague::apiGetActiveBets)
             getLeague("/api/getIdols", BlasementLeague::apiGetIdols)
             getLeague("/api/getTribute", BlasementLeague::apiGetTributes)
+            getLeague("/api/getRisingStars", BlasementLeague::apiGetRisingStars)
 
             getLeague("/database/feed/global", BlasementLeague::databaseGlobalFeed)
             getLeague("/database/feed/game", BlasementLeague::databaseGameFeed)
@@ -414,12 +415,14 @@ class LeagueRegistry(val json: Json, val httpClient: HttpClient, datablaseConfig
             getLeague("/database/feed/player", BlasementLeague::databasePlayerFeed)
             getLeague("/database/feed/story", BlasementLeague::databaseStoryFeed)
             getLeague("/database/feedByPhase", BlasementLeague::databaseFeedByPhase)
+            getLeague("/database/feedbyphase", BlasementLeague::databaseFeedByPhase)
 
             getLeague("/database/globalEvents", BlasementLeague::databaseGlobalEvents)
             getLeague("/database/shopSetup", BlasementLeague::databaseShopSetup)
             getLeague("/database/playerNamesIds", BlasementLeague::databasePlayerNames)
             getLeague("/database/players", BlasementLeague::databasePlayers)
             getLeague("/database/offseasonSetup", BlasementLeague::databaseOffseasonSetup)
+            getLeague("/database/offseasonRecap", BlasementLeague::databaseOffseasonRecap)
             getLeague("/database/vault", BlasementLeague::databaseVault)
             getLeague("/database/sunsun", BlasementLeague::databaseSunSun)
 

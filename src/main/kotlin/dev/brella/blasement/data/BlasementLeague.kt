@@ -20,9 +20,12 @@ import io.ktor.response.*
 import io.ktor.util.pipeline.*
 import io.ktor.websocket.*
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.collect
@@ -44,6 +47,7 @@ import kotlin.coroutines.CoroutineContext
 import kotlin.time.ExperimentalTime
 
 typealias Request = PipelineContext<Unit, ApplicationCall>
+
 enum class EnumVisibilityStatus {
     PUBLIC,
     PROTECTED,
@@ -129,10 +133,10 @@ data class BlasementLeague(
         siteDataClock
     )
 
-    val streamData: SharedFlow<String> =
-        eventsStreamData?.setupFlow(this)
-        ?: emptyFlow<String>()
-            .shareIn(this, SharingStarted.Lazily, 1)
+    val streamData: Deferred<SharedFlow<String>> =
+        async {
+            eventsStreamData?.setupFlow(this@BlasementLeague) ?: MutableSharedFlow()
+        }
 
     @OptIn(ExperimentalTime::class)
     val temporalFlow: SharedFlow<String> =
@@ -171,17 +175,19 @@ data class BlasementLeague(
         with(pipeline) {
             call.respondTextWriter(ContentType.Text.EventStream) {
                 launch(coroutineContext + Dispatchers.IO) {
-                    streamData.collect { data ->
-                        try {
-                            write("data:")
-                            write(data)
-                            write("\n\n")
-                            flush()
-                        } catch (th: Throwable) {
-                            this@respondTextWriter.close()
-                            cancel("An error occurred while writing", th)
+                    streamData
+                        .await()
+                        .collect { data ->
+                            try {
+                                write("data:")
+                                write(data)
+                                write("\n\n")
+                                flush()
+                            } catch (th: Throwable) {
+                                this@respondTextWriter.close()
+                                cancel("An error occurred while writing", th)
+                            }
                         }
-                    }
                 }.join()
             }
         }

@@ -52,6 +52,7 @@ val httpClient = HttpClient(OkHttp) {
     expectSuccess = false
 
     install(HttpTimeout)
+    install(io.ktor.client.features.websocket.WebSockets)
 
     defaultRequest {
         userAgent("Blasement 1.0.0 (UnderMybrella, https://github.com/UnderMybrella/the-blasement)")

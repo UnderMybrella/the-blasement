@@ -43,6 +43,20 @@ interface BlaseballDatabaseFeedByPhaseEndpoint : BlaseballEndpoint {
             }
     }
 
+    object Live: BlaseballDatabaseFeedByPhaseEndpoint {
+        override suspend fun getDataFor(league: BlasementLeague, request: Request): JsonElement? =
+            league.httpClient.get<JsonArray>("https://www.blaseball.com/database/feedbyphase") {
+                request.call.request.queryParameters.flattenForEach { k, v -> parameter(k, v) }
+
+                timeout {
+                    socketTimeoutMillis = 20_000
+                }
+            }
+
+        override fun describe(): JsonElement? =
+            JsonPrimitive("live")
+    }
+
     data class Static(val feed: JsonElement?) : BlaseballDatabaseFeedByPhaseEndpoint {
         override suspend fun getDataFor(league: BlasementLeague, request: Request): JsonElement? = feed
 
@@ -62,11 +76,13 @@ interface BlaseballDatabaseFeedByPhaseEndpoint : BlaseballEndpoint {
                     is JsonPrimitive ->
                         when (val type = config.contentOrNull?.lowercase(Locale.getDefault())) {
                             "upnuts" -> Upnuts(Upnuts.TGB)
+                            "live" -> Live
                             else -> return KorneaResult.errorAsIllegalArgument(-1, "Unknown endpoint string '$type'")
                         }
                     is JsonObject ->
                         when (val type = config.getStringOrNull("type")?.lowercase(Locale.getDefault())) {
                             "upnuts" -> Upnuts(Upnuts.TGB)
+                            "live" -> Live
                             "static" -> Static(config["data"])
                             else -> return KorneaResult.errorAsIllegalArgument(-1, "Unknown type '$type'")
                         }

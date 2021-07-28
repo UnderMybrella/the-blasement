@@ -65,6 +65,20 @@ interface BlaseballDatabaseFeedEndpoint : BlaseballEndpoint {
             }
     }
 
+    class Live(val type: String): Game, Global, Player, Team, Story {
+        override suspend fun getDataFor(league: BlasementLeague, request: Request): JsonElement =
+            league.httpClient.get<JsonArray>("https://www.blaseball.com/database/feed/$type") {
+                request.call.request.queryParameters.flattenForEach { k, v -> parameter(k, v) }
+
+                timeout {
+                    socketTimeoutMillis = 20_000
+                }
+            }
+
+        override fun describe(): JsonElement? =
+            JsonPrimitive("live")
+    }
+
     data class Static(val feed: JsonElement?) : Game, Global, Player, Team, Story {
         override suspend fun getDataFor(league: BlasementLeague, request: Request): JsonElement? = feed
 
@@ -84,11 +98,13 @@ interface BlaseballDatabaseFeedEndpoint : BlaseballEndpoint {
                     is JsonPrimitive ->
                         when (val type = config.contentOrNull?.lowercase(Locale.getDefault())) {
                             "upnuts" -> Upnuts(Upnuts.TGB, type = "global")
+                            "live" -> Live("global")
                             else -> return KorneaResult.errorAsIllegalArgument(-1, "Unknown endpoint string '$type'")
                         }
                     is JsonObject ->
                         when (val type = config.getStringOrNull("type")?.lowercase(Locale.getDefault())) {
                             "upnuts" -> Upnuts(Upnuts.TGB, type = "global")
+                            "live" -> Live("global")
                             "static" -> Static(config["data"])
                             else -> return KorneaResult.errorAsIllegalArgument(-1, "Unknown type '$type'")
                         }
@@ -105,11 +121,13 @@ interface BlaseballDatabaseFeedEndpoint : BlaseballEndpoint {
                     is JsonPrimitive ->
                         when (val type = config.contentOrNull?.lowercase(Locale.getDefault())) {
                             "upnuts" -> Upnuts(Upnuts.TGB, type = "game")
+                            "live" -> Live("game")
                             else -> return KorneaResult.errorAsIllegalArgument(-1, "Unknown endpoint string '$type'")
                         }
                     is JsonObject ->
                         when (val type = config.getStringOrNull("type")?.lowercase(Locale.getDefault())) {
                             "upnuts" -> Upnuts(Upnuts.TGB, type = "game")
+                            "live" -> Live("game")
                             "static" -> Static(config["data"])
                             else -> return KorneaResult.errorAsIllegalArgument(-1, "Unknown type '$type'")
                         }
@@ -126,11 +144,13 @@ interface BlaseballDatabaseFeedEndpoint : BlaseballEndpoint {
                     is JsonPrimitive ->
                         when (val type = config.contentOrNull?.lowercase(Locale.getDefault())) {
                             "upnuts" -> Upnuts(Upnuts.TGB, type = "player")
+                            "live" -> Live("player")
                             else -> return KorneaResult.errorAsIllegalArgument(-1, "Unknown endpoint string '$type'")
                         }
                     is JsonObject ->
                         when (val type = config.getStringOrNull("type")?.lowercase(Locale.getDefault())) {
                             "upnuts" -> Upnuts(Upnuts.TGB, type = "player")
+                            "live" -> Live("player")
                             "static" -> Static(config["data"])
                             else -> return KorneaResult.errorAsIllegalArgument(-1, "Unknown type '$type'")
                         }
@@ -147,11 +167,13 @@ interface BlaseballDatabaseFeedEndpoint : BlaseballEndpoint {
                     is JsonPrimitive ->
                         when (val type = config.contentOrNull?.lowercase(Locale.getDefault())) {
                             "upnuts" -> Upnuts(Upnuts.TGB, type = "team")
+                            "live" -> Live("team")
                             else -> return KorneaResult.errorAsIllegalArgument(-1, "Unknown endpoint string '$type'")
                         }
                     is JsonObject ->
                         when (val type = config.getStringOrNull("type")?.lowercase(Locale.getDefault())) {
                             "upnuts" -> Upnuts(Upnuts.TGB, type = "team")
+                            "live" -> Live("team")
                             "static" -> Static(config["data"])
                             else -> return KorneaResult.errorAsIllegalArgument(-1, "Unknown type '$type'")
                         }
@@ -168,11 +190,13 @@ interface BlaseballDatabaseFeedEndpoint : BlaseballEndpoint {
                     is JsonPrimitive ->
                         when (val type = config.contentOrNull?.lowercase(Locale.getDefault())) {
                             "upnuts" -> Upnuts(Upnuts.TGB, type = "story")
+                            "live" -> Live("story")
                             else -> return KorneaResult.errorAsIllegalArgument(-1, "Unknown endpoint string '$type'")
                         }
                     is JsonObject ->
                         when (val type = config.getStringOrNull("type")?.lowercase(Locale.getDefault())) {
                             "upnuts" -> Upnuts(Upnuts.TGB, type = "story")
+                            "live" -> Live("story")
                             "static" -> Static(config["data"])
                             else -> return KorneaResult.errorAsIllegalArgument(-1, "Unknown type '$type'")
                         }

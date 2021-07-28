@@ -8,6 +8,7 @@ import dev.brella.blasement.getChroniclerEntity
 import dev.brella.blasement.getStringOrNull
 import dev.brella.kornea.errors.common.KorneaResult
 import dev.brella.kornea.errors.common.successPooled
+import io.ktor.client.request.*
 import kotlinx.serialization.json.*
 import java.util.*
 
@@ -31,6 +32,14 @@ interface BlaseballDatabaseGlobalEventsEndpoint : BlaseballEndpoint {
             }
     }
 
+    object Live : BlaseballDatabaseGlobalEventsEndpoint {
+        override suspend fun getDataFor(league: BlasementLeague, request: Request): JsonElement? =
+            league.httpClient.get("https://www.blaseball.com/database/globalEvents")
+
+        override fun describe(): JsonElement? =
+            JsonPrimitive("live")
+    }
+
     object Chronicler : BlaseballDatabaseGlobalEventsEndpoint {
         override suspend fun getDataFor(league: BlasementLeague, request: Request): JsonElement? =
             league.httpClient.getChroniclerEntity("globalevents", league.clock.getTime())
@@ -47,11 +56,13 @@ interface BlaseballDatabaseGlobalEventsEndpoint : BlaseballEndpoint {
                     is JsonPrimitive ->
                         when (val type = config.contentOrNull?.lowercase(Locale.getDefault())) {
                             "chronicler" -> Chronicler
+                            "live" -> Live
                             else -> return KorneaResult.errorAsIllegalArgument(-1, "Unknown endpoint string '$type'")
                         }
                     is JsonObject ->
                         when (val type = config.getStringOrNull("type")?.lowercase(Locale.getDefault())) {
                             "chronicler" -> Chronicler
+                            "live" -> Live
                             "static" -> Static(config["data"])
                             else -> return KorneaResult.errorAsIllegalArgument(-1, "Unknown type '$type'")
                         }

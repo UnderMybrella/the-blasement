@@ -23,6 +23,7 @@ public suspend inline fun HttpClient.getChroniclerVersionsBefore(type: String, a
         parameter("type", type)
         parameter("before", at)
         parameter("order", "desc")
+        parameter("count", 50)
 
         builder()
     }["items"] as? JsonArray)?.mapNotNull { (it as? JsonObject)?.getJsonObjectOrNull("data") }

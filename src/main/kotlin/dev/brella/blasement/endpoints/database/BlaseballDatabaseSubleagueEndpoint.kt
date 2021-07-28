@@ -31,6 +31,16 @@ interface BlaseballDatabaseSubleagueEndpoint : BlaseballEndpoint {
             JsonPrimitive("chronicler")
     }
 
+    object Live : BlaseballDatabaseSubleagueEndpoint {
+        override suspend fun getDataFor(league: BlasementLeague, request: Request): JsonElement? =
+            league.httpClient.get("https://www.blaseball.com/database/subleague") {
+                parameter("id", request.call.request.queryParameters["id"])
+            }
+
+        override fun describe(): JsonElement? =
+            JsonPrimitive("live")
+    }
+
     data class Static(val data: JsonElement?): BlaseballDatabaseSubleagueEndpoint {
         override suspend fun getDataFor(league: BlasementLeague, request: Request): JsonElement? =
             data
@@ -51,11 +61,13 @@ interface BlaseballDatabaseSubleagueEndpoint : BlaseballEndpoint {
                     is JsonPrimitive ->
                         when (val type = config.contentOrNull?.lowercase(Locale.getDefault())) {
                             "chronicler" -> Chronicler
+                            "live" -> Live
                             else -> return KorneaResult.errorAsIllegalArgument(-1, "Unknown endpoint string '$type'")
                         }
                     is JsonObject ->
                         when (val type = config.getStringOrNull("type")?.lowercase(Locale.getDefault())) {
                             "chronicler" -> Chronicler
+                            "live" -> Live
                             "static" -> Static(config["data"])
                             else -> return KorneaResult.errorAsIllegalArgument(-1, "Unknown type '$type'")
                         }

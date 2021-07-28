@@ -6,6 +6,8 @@ import io.ktor.client.features.*
 import io.ktor.client.request.*
 import io.ktor.http.*
 import io.ktor.response.*
+import io.ktor.utils.io.*
+import io.ktor.utils.io.core.*
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -67,11 +69,11 @@ class BlasementSiteData(
 
     suspend fun downloadData(data: ChroniclerSiteData) =
         try {
-            http.get<ByteArray>("https://api.sibr.dev/chronicler/v1${data.downloadUrl}") {
+            http.get<Input>("https://api.sibr.dev/chronicler/v1${data.downloadUrl}") {
                 timeout {
                     socketTimeoutMillis = HttpTimeout.INFINITE_TIMEOUT_MS
                 }
-            }
+            }.readBytes()
         } catch (th: Throwable) {
             th.printStackTrace()
             null

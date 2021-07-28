@@ -14,9 +14,17 @@ import dev.brella.kornea.errors.common.KorneaResult
 import dev.brella.kornea.errors.common.cast
 import dev.brella.kornea.errors.common.getOrBreak
 import dev.brella.kornea.errors.common.successPooled
+import io.ktor.client.features.websocket.*
+import io.ktor.client.request.*
+import io.ktor.http.cio.websocket.*
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.channelFlow
+import kotlinx.coroutines.flow.consumeAsFlow
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.mapNotNull
+import kotlinx.coroutines.flow.onCompletion
 import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.isActive
 import kotlinx.serialization.json.JsonArray
@@ -79,7 +87,7 @@ interface BlaseballEventsStreamDataEndpoint {
         )
 
         @OptIn(ExperimentalTime::class)
-        override fun setupFlow(league: BlasementLeague): SharedFlow<String> =
+        override suspend fun setupFlow(league: BlasementLeague): SharedFlow<String> =
             flow<String> {
                 //Chronicler is a bit funky with streamData sometimes, so we need to set up a base element, and then populate that
                 val core: MutableMap<String, JsonElement> = HashMap()
@@ -179,9 +187,28 @@ interface BlaseballEventsStreamDataEndpoint {
             }
     }
 
+    object Live : BlaseballEventsStreamDataEndpoint {
+        override suspend fun setupFlow(league: BlasementLeague): SharedFlow<String> {
+            val session = league.httpClient.webSocketSession {
+                url("wss://api.sibr.dev/corsmechanics/www.blaseball.com/events/streamSocket")
+
+                println(url.protocol)
+            }
+
+            return session.incoming
+                .consumeAsFlow()
+                .mapNotNull { frame -> (frame as? Frame.Text)?.readText() }
+                .onCompletion { session.close() }
+                .shareIn(session, SharingStarted.Eagerly, 1)
+        }
+
+        override fun describe(): JsonElement? =
+            JsonPrimitive("live")
+    }
+
     data class ChroniclerAtTime(val clock: BlasementClock) : BlaseballEventsStreamDataEndpoint {
         @OptIn(ExperimentalTime::class)
-        override fun setupFlow(league: BlasementLeague): SharedFlow<String> =
+        override suspend fun setupFlow(league: BlasementLeague): SharedFlow<String> =
             flow<String> {
                 //Chronicler is a bit funky with streamData sometimes, so we need to set up a base element, and then populate that
                 val core: MutableMap<String, JsonElement> = HashMap()
@@ -254,7 +281,7 @@ interface BlaseballEventsStreamDataEndpoint {
     }
 
     data class Static(val data: JsonElement?) : BlaseballEventsStreamDataEndpoint {
-        override fun setupFlow(league: BlasementLeague): SharedFlow<String> =
+        override suspend fun setupFlow(league: BlasementLeague): SharedFlow<String> =
             flow { emit(data.toString()) }
                 .shareIn(league, SharingStarted.Lazily, 1)
 
@@ -265,7 +292,7 @@ interface BlaseballEventsStreamDataEndpoint {
             }
     }
 
-    fun setupFlow(league: BlasementLeague): SharedFlow<String>
+    suspend fun setupFlow(league: BlasementLeague): SharedFlow<String>
     fun describe(): JsonElement?
 
     companion object {
@@ -277,12 +304,14 @@ interface BlaseballEventsStreamDataEndpoint {
                     is JsonPrimitive ->
                         when (val type = config.contentOrNull?.lowercase(Locale.getDefault())) {
                             "chronicler" -> Chronicler
+                            "live" -> Live
                             else -> return KorneaResult.errorAsIllegalArgument(-1, "Unknown endpoint string '$type'")
                         }
                     is JsonObject ->
                         when (val type = config.getStringOrNull("type")?.lowercase(Locale.getDefault())) {
                             "chronicler" -> Chronicler
                             "chronicler_at_time" -> ChroniclerAtTime(BlasementClock.loadFrom(config["clock"], System.currentTimeMillis(), Clock.systemUTC()).getOrBreak { return it.cast() })
+                            "live" -> Live
                             "static" -> Static(config["data"])
                             else -> return KorneaResult.errorAsIllegalArgument(-1, "Unknown type '$type'")
                         }
