@@ -8,3 +8,6 @@ Get game schedules
 
 ### GET /database/fuelProgress
 S24, piloting
+
+### GET /database/coffee?ids={x,y,z}
+Most important endpoint
