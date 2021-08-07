@@ -44,6 +44,65 @@ sealed interface SiteTransformer {
                     .replace("auth/facebook", "auth/discord")
         }
 
+        object AddNewBeingsJs : InitialTextTransformer {
+            //switch(e){case 0:return l.a.createElement(_.Kc,null);case 1:return l.a.createElement(Fc,{style:{filter:i.lightMode?"invert(1)":"none"}});case 2:return t?l.a.createElement("div",{className:"BigDeal-Equity"}):zg(a.sim,"SIM_NO_COIN")?l.a.createElement("div",{className:"BigDeal-Equity BigDeal-Equity-Bye"}):zg(a.sim,"SIM_COIN_SCATTERED")?l.a.createElement("div",{className:"BigDeal-Equity BigDeal-Equity-Scattered"}):l.a.createElement("div",{className:"BigDeal-Equity"});case 4:return l.a.createElement(Lc,null);case 5:return l.a.createElement(zc,null);case 6:return t?l.a.createElement(l.a.Fragment,null):l.a.createElement(Xc.a,{id:"0et7jJ1zV_w"})}return null}
+            val MESSAGE_ICON_REGEX = "switch\\s*\\((\\w+)\\)\\{(case \\d+:\\s*return (\\w+\\.\\w+\\.createElement).+?)\\}return null\\}".toRegex()
+            override fun transform(data: String): String =
+                data.replace(MESSAGE_ICON_REGEX) { match ->
+                    "switch(${match.groupValues[1]}){${match.groupValues[2]}}return ${match.groupValues[3]}(\"div\",{className:\"BigDeal-Icon-\" + ${match.groupValues[1]}});}"
+                }
+        }
+        object AddTweetStylesCss : InitialTextTransformer {
+            val PARKER_STYLE =
+                """
+                    .BigDeal-Message-Style-50 {
+                      font-family: "Lora", "Courier New", monospace, serif;
+                      font-weight: 700;
+                    }
+                    
+                    .BigDeal-Message-Icon-50 {
+                      background: #000000;
+                    }
+                    
+                    .BigDeal-Icon-50 {
+                      background: url(https://backblase.brella.dev/assets/beings/Parker.png);
+                      background-repeat: no-repeat;
+                      background-size: contain;
+                      background-position: 50%;
+                      margin: auto;
+                      width: 100%;
+                      height: 100%;
+                      max-width: 80vw;
+                    }
+                """.trimIndent()
+
+            val ANCHOR_STYLE =
+                """
+                    .BigDeal-Message-Style-51 {
+                      font-family: "Lora", "Courier New", monospace, serif;
+                      font-weight: 700;
+                    }
+                    
+                    .BigDeal-Message-Icon-51 {
+                      background: #000000;
+                    }
+                    
+                    .BigDeal-Icon-51 {
+                      background: url(https://backblase.brella.dev/assets/beings/ged_5nAK_400x400.jpg);
+                      background-repeat: no-repeat;
+                      background-size: contain;
+                      background-position: 50%;
+                      margin: auto;
+                      width: 100%;
+                      height: 100%;
+                      max-width: 80vw;
+                    }
+                """.trimIndent()
+            override fun transform(data: String): String? =
+                data.plus(PARKER_STYLE)
+                    .plus(ANCHOR_STYLE)
+        }
+
         fun transform(data: String): String?
     }
 

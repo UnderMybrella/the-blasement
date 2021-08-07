@@ -77,7 +77,7 @@ The [Expansion Era](https://www.blaseball.wiki/w/Expansion_Era) runs from Season
     "clock":{
       "type": "bounded",
       "time": "2021-03-08T15:50:23.624Z",
-      "end": "2021-03-14T18:6:15.400Z"
+      "end": "2021-03-14T18:06:15.400Z"
     }
 }
 ```

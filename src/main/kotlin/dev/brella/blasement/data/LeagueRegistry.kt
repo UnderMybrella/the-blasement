@@ -1,5 +1,46 @@
 package dev.brella.blasement.data
 
+import dev.brella.blasement.data.BlasementLeague.Companion.API_GET_ACTIVE_BETS
+import dev.brella.blasement.data.BlasementLeague.Companion.API_GET_IDOLS
+import dev.brella.blasement.data.BlasementLeague.Companion.API_GET_RISING_STARS
+import dev.brella.blasement.data.BlasementLeague.Companion.API_GET_TRIBUTES
+import dev.brella.blasement.data.BlasementLeague.Companion.API_GET_USER
+import dev.brella.blasement.data.BlasementLeague.Companion.API_GET_USER_REWARDS
+import dev.brella.blasement.data.BlasementLeague.Companion.CLOCK
+import dev.brella.blasement.data.BlasementLeague.Companion.DATABASE_ALL_DIVISIONS
+import dev.brella.blasement.data.BlasementLeague.Companion.DATABASE_ALL_TEAMS
+import dev.brella.blasement.data.BlasementLeague.Companion.DATABASE_BONUS_RESULTS
+import dev.brella.blasement.data.BlasementLeague.Companion.DATABASE_COMMUNITY_CHEST_PROGRESS
+import dev.brella.blasement.data.BlasementLeague.Companion.DATABASE_DECREE_RESULTS
+import dev.brella.blasement.data.BlasementLeague.Companion.DATABASE_EVENT_RESULTS
+import dev.brella.blasement.data.BlasementLeague.Companion.DATABASE_FEED_BY_PHASE
+import dev.brella.blasement.data.BlasementLeague.Companion.DATABASE_GAME_BY_ID
+import dev.brella.blasement.data.BlasementLeague.Companion.DATABASE_GAME_FEED
+import dev.brella.blasement.data.BlasementLeague.Companion.DATABASE_GET_PREVIOUS_CHAMP
+import dev.brella.blasement.data.BlasementLeague.Companion.DATABASE_GIFT_PROGRESS
+import dev.brella.blasement.data.BlasementLeague.Companion.DATABASE_GLOBAL_EVENTS
+import dev.brella.blasement.data.BlasementLeague.Companion.DATABASE_GLOBAL_FEED
+import dev.brella.blasement.data.BlasementLeague.Companion.DATABASE_ITEMS
+import dev.brella.blasement.data.BlasementLeague.Companion.DATABASE_OFFSEASON_RECAP
+import dev.brella.blasement.data.BlasementLeague.Companion.DATABASE_OFFSEASON_SETUP
+import dev.brella.blasement.data.BlasementLeague.Companion.DATABASE_PLAYERS
+import dev.brella.blasement.data.BlasementLeague.Companion.DATABASE_PLAYERS_BY_ITEM_ID
+import dev.brella.blasement.data.BlasementLeague.Companion.DATABASE_PLAYER_FEED
+import dev.brella.blasement.data.BlasementLeague.Companion.DATABASE_PLAYER_NAMES_AND_IDS
+import dev.brella.blasement.data.BlasementLeague.Companion.DATABASE_PLAYOFFS
+import dev.brella.blasement.data.BlasementLeague.Companion.DATABASE_RENOVATIONS
+import dev.brella.blasement.data.BlasementLeague.Companion.DATABASE_RENOVATION_PROGRESS
+import dev.brella.blasement.data.BlasementLeague.Companion.DATABASE_SHOP_SETUP
+import dev.brella.blasement.data.BlasementLeague.Companion.DATABASE_STORY_FEED
+import dev.brella.blasement.data.BlasementLeague.Companion.DATABASE_SUBLEAGUE
+import dev.brella.blasement.data.BlasementLeague.Companion.DATABASE_SUN_SUN
+import dev.brella.blasement.data.BlasementLeague.Companion.DATABASE_TEAM
+import dev.brella.blasement.data.BlasementLeague.Companion.DATABASE_TEAM_ELECTION_STATS
+import dev.brella.blasement.data.BlasementLeague.Companion.DATABASE_TEAM_FEED
+import dev.brella.blasement.data.BlasementLeague.Companion.DATABASE_VAULT
+import dev.brella.blasement.data.BlasementLeague.Companion.EVENTS_STREAM_DATA
+import dev.brella.blasement.data.BlasementLeague.Companion.LEAGUE_ID
+import dev.brella.blasement.data.BlasementLeague.Companion.VISIBILITY
 import dev.brella.blasement.endpoints.BlaseballEndpoint
 import dev.brella.blasement.endpoints.BlaseballEventsStreamDataEndpoint
 import dev.brella.blasement.endpoints.api.BlaseballApiGetActiveBetsEndpoint
@@ -112,10 +153,10 @@ class LeagueRegistry(val json: Json, val httpClient: HttpClient, datablaseConfig
     fun parseLeagueFromConfig(config: JsonObject, authentication: String, createdAt: Long = utc.millis(), leagueID: String? = null): KorneaResult<BlasementLeague> =
         KorneaResult.successPooled(
             buildBlasementLeague(leagueID, json, httpClient, authentication = authentication) {
-                config.getStringOrNull("league_id")?.let { this.leagueID = it }
+                config.getStringOrNull(LEAGUE_ID)?.let { this.leagueID = it }
 
                 visibilityStatus =
-                    when (val visibilityStatus = config.getStringOrNull("visibility")?.lowercase(Locale.getDefault())) {
+                    when (val visibilityStatus = config.getStringOrNull(VISIBILITY)?.lowercase(Locale.getDefault())) {
                         "private" -> EnumVisibilityStatus.PRIVATE
                         "protected" -> EnumVisibilityStatus.PROTECTED
                         "public" -> EnumVisibilityStatus.PUBLIC
@@ -124,7 +165,7 @@ class LeagueRegistry(val json: Json, val httpClient: HttpClient, datablaseConfig
                     }
 
                 clock = BlasementClock
-                    .loadFrom(config["clock"], createdAt, utc)
+                    .loadFrom(config[CLOCK], createdAt, utc)
                     .consumeOnSuccessGetOrBreak { return it.cast() }
 
                 siteDataClock = config["siteDataClock"]
@@ -136,159 +177,160 @@ class LeagueRegistry(val json: Json, val httpClient: HttpClient, datablaseConfig
 
                 api {
                     getActiveBets = BlaseballApiGetActiveBetsEndpoint
-                        .loadFrom(config["apiGetActiveBets"])
+                        .loadFrom(config[API_GET_ACTIVE_BETS])
                         .consumeOnSuccessGetOrBreak { return it.cast() }
 
                     getIdols = BlaseballApiGetIdolsEndpoint
-                        .loadFrom(config["apiGetIdols"])
+                        .loadFrom(config[API_GET_IDOLS])
                         .consumeOnSuccessGetOrBreak { return it.cast() }
 
                     getRisingStars = BlaseballApiGetRisingStarsEndpoint
-                        .loadFrom(config["apiGetRisingStars"])
+                        .loadFrom(config[API_GET_RISING_STARS])
                         .consumeOnSuccessGetOrBreak { return it.cast() }
+
                     getTribute = BlaseballApiGetTributesEndpoint
-                        .loadFrom(config["apiGetTribute"])
+                        .loadFrom(config[API_GET_TRIBUTES])
                         .consumeOnSuccessGetOrBreak { return it.cast() }
 
                     getUser = BlaseballApiGetUserEndpoint
-                        .loadFrom(config["apiGetUser"])
+                        .loadFrom(config[API_GET_USER])
                         .consumeOnSuccessGetOrBreak { return it.cast() }
 
                     getUserRewards = BlaseballApiGetUserRewardsEndpoint
-                        .loadFrom(config["apiGetUserRewards"])
+                        .loadFrom(config[API_GET_USER_REWARDS])
                         .consumeOnSuccessGetOrBreak { return it.cast() }
                 }
 
                 database {
                     feed {
                         global = BlaseballDatabaseFeedEndpoint
-                            .loadGlobalFrom(config["databaseFeedGlobal"])
+                            .loadGlobalFrom(config[DATABASE_GLOBAL_FEED])
                             .consumeOnSuccessGetOrBreak { return it.cast() }
 
                         game = BlaseballDatabaseFeedEndpoint
-                            .loadGameFrom(config["databaseFeedGame"])
+                            .loadGameFrom(config[DATABASE_GAME_FEED])
                             .consumeOnSuccessGetOrBreak { return it.cast() }
 
                         player = BlaseballDatabaseFeedEndpoint
-                            .loadPlayerFrom(config["databaseFeedPlayer"])
+                            .loadPlayerFrom(config[DATABASE_PLAYER_FEED])
                             .consumeOnSuccessGetOrBreak { return it.cast() }
 
                         team = BlaseballDatabaseFeedEndpoint
-                            .loadTeamFrom(config["databaseFeedTeam"])
+                            .loadTeamFrom(config[DATABASE_TEAM_FEED])
                             .consumeOnSuccessGetOrBreak { return it.cast() }
 
                         story = BlaseballDatabaseFeedEndpoint
-                            .loadStoryFrom(config["databaseFeedStory"])
+                            .loadStoryFrom(config[DATABASE_STORY_FEED])
                             .consumeOnSuccessGetOrBreak { return it.cast() }
                     }
 
                     allDivisions = BlaseballDatabaseAllDivisionsEndpoint
-                        .loadFrom(config["databaseAllDivisions"])
+                        .loadFrom(config[DATABASE_ALL_DIVISIONS])
                         .consumeOnSuccessGetOrBreak { return it.cast() }
 
                     allTeams = BlaseballDatabaseAllTeamsEndpoint
-                        .loadFrom(config["databaseAllTeams"])
+                        .loadFrom(config[DATABASE_ALL_TEAMS])
                         .consumeOnSuccessGetOrBreak { return it.cast() }
 
                     communityChestProgress = BlaseballDatabaseCommunityChestProgressEndpoint
-                        .loadFrom(config["databaseCommunityChestProgress"])
+                        .loadFrom(config[DATABASE_COMMUNITY_CHEST_PROGRESS])
                         .consumeOnSuccessGetOrBreak { return it.cast() }
 
                     bonusResults = BlaseballDatabaseBonusResultsEndpoint
-                        .loadFrom(config["databaseBonusResults"])
+                        .loadFrom(config[DATABASE_BONUS_RESULTS])
                         .consumeOnSuccessGetOrBreak { return it.cast() }
 
                     decreeResults = BlaseballDatabaseDecreeResultsEndpoint
-                        .loadFrom(config["databaseDecreeResults"])
+                        .loadFrom(config[DATABASE_DECREE_RESULTS])
                         .consumeOnSuccessGetOrBreak { return it.cast() }
 
                     eventResults = BlaseballDatabaseEventResultsEndpoint
-                        .loadFrom(config["databaseEventResults"])
+                        .loadFrom(config[DATABASE_EVENT_RESULTS])
                         .consumeOnSuccessGetOrBreak { return it.cast() }
 
                     feedByPhase = BlaseballDatabaseFeedByPhaseEndpoint
-                        .loadFrom(config["databaseFeedByPhase"])
+                        .loadFrom(config[DATABASE_FEED_BY_PHASE])
                         .consumeOnSuccessGetOrBreak { return it.cast() }
 
                     gameById = BlaseballDatabaseGameByIdEndpoint
-                        .loadFrom(config["databaseGameById"])
+                        .loadFrom(config[DATABASE_GAME_BY_ID])
                         .consumeOnSuccessGetOrBreak { return it.cast() }
 
                     getPreviousChamp = BlaseballDatabaseGetPreviousChampEndpoint
-                        .loadFrom(config["databaseGetPreviousChamp"])
+                        .loadFrom(config[DATABASE_GET_PREVIOUS_CHAMP])
                         .consumeOnSuccessGetOrBreak { return it.cast() }
 
                     giftProgress = BlaseballDatabaseGiftProgressEndpoint
-                        .loadFrom(config["databaseGiftProgress"])
+                        .loadFrom(config[DATABASE_GIFT_PROGRESS])
                         .consumeOnSuccessGetOrBreak { return it.cast() }
 
                     globalEvents = BlaseballDatabaseGlobalEventsEndpoint
-                        .loadFrom(config["databaseGlobalEvents"])
+                        .loadFrom(config[DATABASE_GLOBAL_EVENTS])
                         .consumeOnSuccessGetOrBreak { return it.cast() }
 
                     items = BlaseballDatabaseItemsEndpoint
-                        .loadFrom(config["databaseItems"])
+                        .loadFrom(config[DATABASE_ITEMS])
                         .consumeOnSuccessGetOrBreak { return it.cast() }
 
                     offseasonRecap = BlaseballDatabaseOffseasonRecapEndpoint
-                        .loadFrom(config["databaseOffseasonRecap"])
+                        .loadFrom(config[DATABASE_OFFSEASON_RECAP])
                         .consumeOnSuccessGetOrBreak { return it.cast() }
 
                     offseasonSetup = BlaseballDatabaseOffseasonSetupEndpoint
-                        .loadFrom(config["databaseOffseasonSetup"])
+                        .loadFrom(config[DATABASE_OFFSEASON_SETUP])
                         .consumeOnSuccessGetOrBreak { return it.cast() }
 
                     playerNamesIds = BlaseballDatabasePlayerNamesEndpoint
-                        .loadFrom(config["databasePlayerNamesIds"])
+                        .loadFrom(config[DATABASE_PLAYER_NAMES_AND_IDS])
                         .consumeOnSuccessGetOrBreak { return it.cast() }
 
                     players = BlaseballDatabasePlayersEndpoint
-                        .loadFrom(config["databasePlayers"])
+                        .loadFrom(config[DATABASE_PLAYERS])
                         .consumeOnSuccessGetOrBreak { return it.cast() }
 
                     playersByItemId = BlaseballDatabasePlayersByItemEndpoint
-                        .loadFrom(config["databasePlayersByItemId"])
+                        .loadFrom(config[DATABASE_PLAYERS_BY_ITEM_ID])
                         .consumeOnSuccessGetOrBreak { return it.cast() }
 
                     playoffs = BlaseballDatabasePlayoffsEndpoint
-                        .loadFrom(config["databasePlayoffs"])
+                        .loadFrom(config[DATABASE_PLAYOFFS])
                         .consumeOnSuccessGetOrBreak { return it.cast() }
 
                     renovationProgress = BlaseballDatabaseRenovationProgressEndpoint
-                        .loadFrom(config["databaseRenovationProgress"])
+                        .loadFrom(config[DATABASE_RENOVATION_PROGRESS])
                         .consumeOnSuccessGetOrBreak { return it.cast() }
 
                     renovations = BlaseballDatabaseRenovationsEndpoint
-                        .loadFrom(config["databaseRenovations"])
+                        .loadFrom(config[DATABASE_RENOVATIONS])
                         .consumeOnSuccessGetOrBreak { return it.cast() }
 
                     shopSetup = BlaseballDatabaseShopSetupEndpoint
-                        .loadFrom(config["databaseShopSetup"])
+                        .loadFrom(config[DATABASE_SHOP_SETUP])
                         .consumeOnSuccessGetOrBreak { return it.cast() }
 
                     subleague = BlaseballDatabaseSubleagueEndpoint
-                        .loadFrom(config["databaseSubleague"])
+                        .loadFrom(config[DATABASE_SUBLEAGUE])
                         .consumeOnSuccessGetOrBreak { return it.cast() }
 
                     sunSun = BlaseballDatabaseSunSunEndpoint
-                        .loadFrom(config["databaseSunSun"])
+                        .loadFrom(config[DATABASE_SUN_SUN])
                         .consumeOnSuccessGetOrBreak { return it.cast() }
 
                     team = BlaseballDatabaseTeamEndpoint
-                        .loadFrom(config["databaseTeam"])
+                        .loadFrom(config[DATABASE_TEAM])
                         .consumeOnSuccessGetOrBreak { return it.cast() }
 
                     teamElectionStats = BlaseballDatabaseTeamElectionStatsEndpoint
-                        .loadFrom(config["databaseTeamElectionStats"])
+                        .loadFrom(config[DATABASE_TEAM_ELECTION_STATS])
                         .consumeOnSuccessGetOrBreak { return it.cast() }
 
                     vault = BlaseballDatabaseVaultEndpoint
-                        .loadFrom(config["databaseVault"])
+                        .loadFrom(config[DATABASE_VAULT])
                         .consumeOnSuccessGetOrBreak { return it.cast() }
                 }
 
                 eventsStreamData = BlaseballEventsStreamDataEndpoint
-                    .loadFrom(config["eventsStreamData"])
+                    .loadFrom(config[EVENTS_STREAM_DATA])
                     .consumeOnSuccessGetOrBreak { return it.cast() }
             }
         )
@@ -333,10 +375,68 @@ class LeagueRegistry(val json: Json, val httpClient: HttpClient, datablaseConfig
         }
 
     @ContextDsl
+    private inline fun Route.leagueEndpoint(path: String, endpoint: KProperty1<BlasementLeague, BlaseballEndpoint?>): Route =
+        route(path) {
+            get {
+                league()?.let { it.handleGet(this, endpoint.get(it), path) }
+                ?: return@get call.respondJsonObject(HttpStatusCode.NotFound) {
+                    put("error", "No league found")
+                }
+            }
+
+            put {
+                league()?.let { league ->
+                    val authToken = call.request.header(HttpHeaders.Authorization)
+                    if (authToken == null || !argon2.matches(authToken, league.authentication)) {
+                        return@put call.respondJsonObject(HttpStatusCode.Unauthorized) {
+                            put("error", "Invalid authentication token")
+                        }
+                    }
+
+                    league.handlePut(this, endpoint.get(league), path)
+                } ?: return@put call.respondJsonObject(HttpStatusCode.NotFound) {
+                    put("error", "No league found")
+                }
+            }
+
+            webSocket("/update") {
+                league()?.let { league ->
+                    val authToken = call.request.header(HttpHeaders.Authorization)
+                    if (authToken == null || !argon2.matches(authToken, league.authentication)) {
+                        return@webSocket call.respondJsonObject(HttpStatusCode.Unauthorized) {
+                            put("error", "Invalid authentication token")
+                        }
+                    }
+
+                    league.handleWebSocket(this, call, endpoint.get(league), path)
+                } ?: return@webSocket call.respondJsonObject(HttpStatusCode.NotFound) {
+                    put("error", "No league found")
+                }
+            }
+        }
+
+    @ContextDsl
     private inline fun Route.getLeague(path: String, endpoint: KProperty1<BlasementLeague, BlaseballEndpoint?>): Route =
         get(path) {
-            league()?.let { it.handle(this, endpoint.get(it), path) }
+            league()?.let { it.handleGet(this, endpoint.get(it), path) }
             ?: return@get call.respondJsonObject(HttpStatusCode.NotFound) {
+                put("error", "No league found")
+            }
+        }
+
+    @ContextDsl
+    private inline fun Route.putLeague(path: String, endpoint: KProperty1<BlasementLeague, BlaseballEndpoint?>): Route =
+        put(path) {
+            league()?.let { league ->
+                val authToken = call.request.header(HttpHeaders.Authorization)
+                if (authToken == null || !argon2.matches(authToken, league.authentication)) {
+                    return@put call.respondJsonObject(HttpStatusCode.Unauthorized) {
+                        put("error", "Invalid authentication token")
+                    }
+                }
+
+                league.handlePut(this, endpoint.get(league), path)
+            } ?: return@put call.respondJsonObject(HttpStatusCode.NotFound) {
                 put("error", "No league found")
             }
         }
@@ -402,52 +502,54 @@ class LeagueRegistry(val json: Json, val httpClient: HttpClient, datablaseConfig
                 league.handleIndexHtml(this)
             }
 
-            getLeague("/api/getUser", BlasementLeague::apiGetUser)
-            getLeague("/api/getUserRewards", BlasementLeague::apiGetUserRewards)
-            getLeague("/api/getActiveBets", BlasementLeague::apiGetActiveBets)
-            getLeague("/api/getIdols", BlasementLeague::apiGetIdols)
-            getLeague("/api/getTribute", BlasementLeague::apiGetTributes)
-            getLeague("/api/getRisingStars", BlasementLeague::apiGetRisingStars)
+            leagueEndpoint("/api/getUser", BlasementLeague::apiGetUser)
+            leagueEndpoint("/api/getUserRewards", BlasementLeague::apiGetUserRewards)
+            leagueEndpoint("/api/getActiveBets", BlasementLeague::apiGetActiveBets)
+            leagueEndpoint("/api/getIdols", BlasementLeague::apiGetIdols)
+            leagueEndpoint("/api/getTribute", BlasementLeague::apiGetTributes)
+            leagueEndpoint("/api/getRisingStars", BlasementLeague::apiGetRisingStars)
 
-            getLeague("/database/feed/global", BlasementLeague::databaseGlobalFeed)
-            getLeague("/database/feed/game", BlasementLeague::databaseGameFeed)
-            getLeague("/database/feed/team", BlasementLeague::databaseTeamFeed)
-            getLeague("/database/feed/player", BlasementLeague::databasePlayerFeed)
-            getLeague("/database/feed/story", BlasementLeague::databaseStoryFeed)
-            getLeague("/database/feedByPhase", BlasementLeague::databaseFeedByPhase)
-            getLeague("/database/feedbyphase", BlasementLeague::databaseFeedByPhase)
+            leagueEndpoint("/database/feed/global", BlasementLeague::databaseGlobalFeed)
+            leagueEndpoint("/database/feed/game", BlasementLeague::databaseGameFeed)
+            leagueEndpoint("/database/feed/team", BlasementLeague::databaseTeamFeed)
+            leagueEndpoint("/database/feed/player", BlasementLeague::databasePlayerFeed)
+            leagueEndpoint("/database/feed/story", BlasementLeague::databaseStoryFeed)
+            leagueEndpoint("/database/feedByPhase", BlasementLeague::databaseFeedByPhase)
+            leagueEndpoint("/database/feedbyphase", BlasementLeague::databaseFeedByPhase)
 
-            getLeague("/database/globalEvents", BlasementLeague::databaseGlobalEvents)
-            getLeague("/database/shopSetup", BlasementLeague::databaseShopSetup)
-            getLeague("/database/playerNamesIds", BlasementLeague::databasePlayerNames)
-            getLeague("/database/players", BlasementLeague::databasePlayers)
-            getLeague("/database/offseasonSetup", BlasementLeague::databaseOffseasonSetup)
-            getLeague("/database/offseasonRecap", BlasementLeague::databaseOffseasonRecap)
-            getLeague("/database/vault", BlasementLeague::databaseVault)
-            getLeague("/database/sunsun", BlasementLeague::databaseSunSun)
+            leagueEndpoint("/database/globalEvents", BlasementLeague::databaseGlobalEvents)
+            leagueEndpoint("/database/shopSetup", BlasementLeague::databaseShopSetup)
+            leagueEndpoint("/database/playerNamesIds", BlasementLeague::databasePlayerNames)
+            leagueEndpoint("/database/players", BlasementLeague::databasePlayers)
+            leagueEndpoint("/database/offseasonSetup", BlasementLeague::databaseOffseasonSetup)
+            leagueEndpoint("/database/offseasonRecap", BlasementLeague::databaseOffseasonRecap)
+            leagueEndpoint("/database/vault", BlasementLeague::databaseVault)
+            leagueEndpoint("/database/sunsun", BlasementLeague::databaseSunSun)
 
-            getLeague("/database/allDivisions", BlasementLeague::databaseAllDivisions)
-            getLeague("/database/allTeams", BlasementLeague::databaseAllTeams)
-            getLeague("/database/communityChestProgress", BlasementLeague::databaseCommunityChestProgress)
-            getLeague("/database/bonusResults", BlasementLeague::databaseBonusResults)
-            getLeague("/database/decreeResults", BlasementLeague::databaseDecreeResults)
-            getLeague("/database/eventResults", BlasementLeague::databaseEventResults)
+            leagueEndpoint("/database/allDivisions", BlasementLeague::databaseAllDivisions)
+            leagueEndpoint("/database/allTeams", BlasementLeague::databaseAllTeams)
+            leagueEndpoint("/database/communityChestProgress", BlasementLeague::databaseCommunityChestProgress)
+            leagueEndpoint("/database/bonusResults", BlasementLeague::databaseBonusResults)
+            leagueEndpoint("/database/decreeResults", BlasementLeague::databaseDecreeResults)
+            leagueEndpoint("/database/eventResults", BlasementLeague::databaseEventResults)
 
-            getLeague("/database/gameById/{id}", BlasementLeague::databaseGameById)
-            getLeague("/database/getPreviousChamp", BlasementLeague::databaseGetPreviousChamp)
-            getLeague("/database/giftProgress", BlasementLeague::databaseGiftProgress)
+            leagueEndpoint("/database/gameById/{id}", BlasementLeague::databaseGameById)
+            leagueEndpoint("/database/getPreviousChamp", BlasementLeague::databaseGetPreviousChamp)
+            leagueEndpoint("/database/giftProgress", BlasementLeague::databaseGiftProgress)
 
-            getLeague("/database/items", BlasementLeague::databaseItems)
-            getLeague("/database/playersByItemId", BlasementLeague::databasePlayersByItemId)
-            getLeague("/database/playoffs", BlasementLeague::databasePlayoffs)
-            getLeague("/database/renovationProgress", BlasementLeague::databaseRenovationProgress)
-            getLeague("/database/renovations", BlasementLeague::databaseRenovations)
+            leagueEndpoint("/database/items", BlasementLeague::databaseItems)
+            leagueEndpoint("/database/playersByItemId", BlasementLeague::databasePlayersByItemId)
+            leagueEndpoint("/database/playoffs", BlasementLeague::databasePlayoffs)
+            leagueEndpoint("/database/renovationProgress", BlasementLeague::databaseRenovationProgress)
+            leagueEndpoint("/database/renovations", BlasementLeague::databaseRenovations)
 
-            getLeague("/database/subleague", BlasementLeague::databaseSubleague)
-            getLeague("/database/team", BlasementLeague::databaseTeam)
-            getLeague("/database/teamElectionStats", BlasementLeague::databaseTeamElectionStats)
+            leagueEndpoint("/database/subleague", BlasementLeague::databaseSubleague)
+            leagueEndpoint("/database/team", BlasementLeague::databaseTeam)
+            leagueEndpoint("/database/teamElectionStats", BlasementLeague::databaseTeamElectionStats)
 
             getLeague("/events/streamData", BlasementLeague::handleEventsStreamData)
+            putLeague("/events/streamData", BlasementLeague::eventsStreamData)
+            webSocketLeague("/events/streamData", BlasementLeague::handleEventsStreamDataWebsocket)
 
             webSocketLeague("/api/time", BlasementLeague::handleApiTime)
 //

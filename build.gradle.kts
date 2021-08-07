@@ -12,7 +12,7 @@ plugins {
 }
 
 group = "dev.brella"
-version = "1.1.0"
+version = "1.1.1"
 application {
     mainClass.set("io.ktor.server.netty.EngineMain")
 }
@@ -33,7 +33,7 @@ dependencies {
     implementation("io.ktor:ktor-server-netty:$ktor_version")
     implementation("ch.qos.logback:logback-classic:$logback_version")
 
-    implementation("io.ktor:ktor-client-okhttp:$ktor_version")
+    implementation("io.ktor:ktor-client-cio:$ktor_version")
     implementation("io.ktor:ktor-client-encoding:$ktor_version")
     implementation("io.ktor:ktor-client-core-jvm:$ktor_version")
     implementation("io.ktor:ktor-client-serialization:$ktor_version")

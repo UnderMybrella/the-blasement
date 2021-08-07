@@ -13,6 +13,7 @@ import dev.brella.blasement.loopEvery
 import dev.brella.blasement.respondJsonObject
 import io.ktor.application.*
 import io.ktor.client.*
+import io.ktor.client.utils.*
 import io.ktor.http.*
 import io.ktor.http.cio.websocket.*
 import io.ktor.request.*
@@ -29,13 +30,13 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.collect
-import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.future.await
 import kotlinx.coroutines.future.future
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
@@ -119,6 +120,62 @@ data class BlasementLeague(
 
     val eventsStreamData: BlaseballEventsStreamDataEndpoint? = null
 ) : CoroutineScope {
+    companion object {
+        const val LEAGUE_ID = "league_id"
+        const val VISIBILITY = "visibility"
+
+        const val CLOCK = "clock"
+        const val API_GET_USER = "apiGetUser"
+        const val API_GET_USER_REWARDS = "apiGetUserRewards"
+        const val API_GET_ACTIVE_BETS = "apiGetActiveBets"
+
+        const val API_GET_IDOLS = "apiGetIdols"
+        const val API_GET_TRIBUTES = "apiGetTributes"
+        const val API_GET_RISING_STARS = "apiGetRisingStars"
+
+        const val DATABASE_GLOBAL_EVENTS = "databaseGlobalEvents"
+        const val DATABASE_SHOP_SETUP = "databaseShopSetup"
+
+        const val DATABASE_GLOBAL_FEED = "databaseFeedGlobal"
+        const val DATABASE_GAME_FEED = "databaseFeedGame"
+        const val DATABASE_PLAYER_FEED = "databaseFeedPlayer"
+        const val DATABASE_TEAM_FEED = "databaseFeedTeam"
+        const val DATABASE_STORY_FEED = "databaseFeedStory"
+        const val DATABASE_FEED_BY_PHASE = "databaseFeedByPhase"
+
+        const val DATABASE_PLAYER_NAMES_AND_IDS = "databasePlayerNames"
+        const val DATABASE_PLAYERS = "databasePlayers"
+        const val DATABASE_OFFSEASON_RECAP = "databaseOffseasonRecap"
+        const val DATABASE_OFFSEASON_SETUP = "databaseOffseasonSetup"
+
+        const val DATABASE_SUN_SUN = "databaseSunSun"
+        const val DATABASE_VAULT = "databaseVault"
+
+        const val DATABASE_ALL_DIVISIONS = "databaseAllDivisions"
+        const val DATABASE_ALL_TEAMS = "databaseAllTeams"
+
+        const val DATABASE_COMMUNITY_CHEST_PROGRESS = "databaseCommunityChestProgress"
+        const val DATABASE_BONUS_RESULTS = "databaseBonusResults"
+        const val DATABASE_DECREE_RESULTS = "databaseDecreeResults"
+        const val DATABASE_EVENT_RESULTS = "databaseEventResults"
+
+        const val DATABASE_GAME_BY_ID = "databaseGameById"
+        const val DATABASE_GET_PREVIOUS_CHAMP = "databaseGetPreviousChamp"
+        const val DATABASE_GIFT_PROGRESS = "databaseGiftProgress"
+
+        const val DATABASE_ITEMS = "databaseItems"
+        const val DATABASE_PLAYERS_BY_ITEM_ID = "databasePlayersByItemId"
+        const val DATABASE_PLAYOFFS = "databasePlayoffs"
+        const val DATABASE_RENOVATION_PROGRESS = "databaseRenovationProgress"
+        const val DATABASE_RENOVATIONS = "databaseRenovations"
+
+        const val DATABASE_SUBLEAGUE = "databaseSubleague"
+        const val DATABASE_TEAM = "databaseTeam"
+        const val DATABASE_TEAM_ELECTION_STATS = "databaseTeamElectionStats"
+
+        const val EVENTS_STREAM_DATA = "eventsStreamData"
+    }
+
     override val coroutineContext: CoroutineContext = SupervisorJob()
     val siteData = BlasementSiteData(
         httpClient, indexHtmlTransformers = listOf(
@@ -126,10 +183,14 @@ data class BlasementLeague(
         ),
         mainJsTransformers = listOf(
             SiteTransformer.InitialTextTransformer.ReplaceApiCalls("/leagues/$leagueID"),
-            SiteTransformer.FinalTextTransformer.ReplaceTimeWithWebsocket("/leagues/$leagueID")
+            SiteTransformer.InitialTextTransformer.AddNewBeingsJs,
+
+            SiteTransformer.FinalTextTransformer.ReplaceTimeWithWebsocket("/leagues/$leagueID"),
         ),
         twoJsTransformers = listOf(),
-        mainCssTransformers = listOf(),
+        mainCssTransformers = listOf(
+            SiteTransformer.InitialTextTransformer.AddTweetStylesCss
+        ),
         siteDataClock
     )
 
@@ -151,7 +212,39 @@ data class BlasementLeague(
         .expireAfterWrite(5, TimeUnit.SECONDS)
         .buildAsync<String, JsonElement?>()
 
-    suspend inline fun handle(request: Request, endpoint: BlaseballEndpoint?, path: String) {
+    suspend inline fun handlePut(request: Request, endpoint: BlaseballEndpoint?, path: String) {
+        if (endpoint == null) {
+            return request.call.respondJsonObject(HttpStatusCode.ServiceUnavailable) {
+                put("error", "$path endpoint unavailable")
+            }
+        }
+
+        if (endpoint !is BlaseballUpdatableEndpoint) {
+            return request.call.respondJsonObject(HttpStatusCode.MethodNotAllowed) {
+                put("error", "$path endpoint does not support updating data")
+            }
+        }
+
+        endpoint.updateDataFor(this, request.call)
+
+        if (request.call.response.status() == null) request.call.respond(HttpStatusCode.Created, EmptyContent)
+    }
+    suspend inline fun handleWebSocket(session: WebSocketServerSession, call: ApplicationCall, endpoint: BlaseballEndpoint?, path: String) {
+        if (endpoint == null) {
+            return call.respondJsonObject(HttpStatusCode.ServiceUnavailable) {
+                put("error", "$path endpoint unavailable")
+            }
+        }
+
+        if (endpoint !is BlaseballUpdatableEndpoint) {
+            return call.respondJsonObject(HttpStatusCode.MethodNotAllowed) {
+                put("error", "$path endpoint does not support updating data")
+            }
+        }
+
+        endpoint.updateDataForWebSocket(this, session, call)
+    }
+    suspend inline fun handleGet(request: Request, endpoint: BlaseballEndpoint?, path: String) {
         if (endpoint == null)
             return request.call.respondJsonObject(HttpStatusCode.ServiceUnavailable) {
                 put("error", "$path endpoint unavailable")
@@ -166,6 +259,7 @@ data class BlasementLeague(
         request.call.respond(response)
     }
 
+
     suspend fun handleApiTime(session: WebSocketServerSession) =
         with(session) {
             temporalFlow.collect { send(it) }
@@ -174,15 +268,17 @@ data class BlasementLeague(
     suspend fun handleEventsStreamData(pipeline: Request) =
         with(pipeline) {
             call.respondTextWriter(ContentType.Text.EventStream) {
-                launch(coroutineContext + Dispatchers.IO) {
+                launch(coroutineContext) {
                     streamData
                         .await()
                         .collect { data ->
                             try {
-                                write("data:")
-                                write(data)
-                                write("\n\n")
-                                flush()
+                                withContext(Dispatchers.IO) {
+                                    write("data:")
+                                    write(data)
+                                    write("\n\n")
+                                    flush()
+                                }
                             } catch (th: Throwable) {
                                 this@respondTextWriter.close()
                                 cancel("An error occurred while writing", th)
@@ -190,6 +286,15 @@ data class BlasementLeague(
                         }
                 }.join()
             }
+        }
+
+    suspend fun handleEventsStreamDataWebsocket(session: WebSocketServerSession) =
+        with(session) {
+            launch(coroutineContext) {
+                streamData
+                    .await()
+                    .collect { send(it) }
+            }.join()
         }
 
     suspend fun handleIndexHtml(pipeline: Request) =
@@ -206,59 +311,59 @@ data class BlasementLeague(
 
     fun describe(): JsonObject =
         buildJsonObject {
-            put("league_id", leagueID)
-            put("protection", visibility.name)
+            put(LEAGUE_ID, leagueID)
+            put(VISIBILITY, visibility.name)
 
-            put("clock", clock.describe() ?: JsonNull)
+            put(CLOCK, clock.describe() ?: JsonNull)
 
-            put("apiGetUser", apiGetUser?.describe() ?: JsonNull)
-            put("apiGetUserRewards", apiGetUserRewards?.describe() ?: JsonNull)
-            put("apiGetActiveBets", apiGetActiveBets?.describe() ?: JsonNull)
+            put(API_GET_USER, apiGetUser?.describe() ?: JsonNull)
+            put(API_GET_USER_REWARDS, apiGetUserRewards?.describe() ?: JsonNull)
+            put(API_GET_ACTIVE_BETS, apiGetActiveBets?.describe() ?: JsonNull)
 
-            put("apiGetIdols", apiGetIdols?.describe() ?: JsonNull)
-            put("apiGetTributes", apiGetTributes?.describe() ?: JsonNull)
+            put(API_GET_IDOLS, apiGetIdols?.describe() ?: JsonNull)
+            put(API_GET_TRIBUTES, apiGetTributes?.describe() ?: JsonNull)
 
-            put("databaseGlobalEvents", databaseGlobalEvents?.describe() ?: JsonNull)
-            put("databaseShopSetup", databaseShopSetup?.describe() ?: JsonNull)
+            put(DATABASE_GLOBAL_EVENTS, databaseGlobalEvents?.describe() ?: JsonNull)
+            put(DATABASE_SHOP_SETUP, databaseShopSetup?.describe() ?: JsonNull)
 
-            put("databaseGlobalFeed", databaseGlobalFeed?.describe() ?: JsonNull)
-            put("databaseGameFeed", databaseGameFeed?.describe() ?: JsonNull)
-            put("databasePlayerFeed", databasePlayerFeed?.describe() ?: JsonNull)
-            put("databaseTeamFeed", databaseTeamFeed?.describe() ?: JsonNull)
-            put("databaseStoryFeed", databaseStoryFeed?.describe() ?: JsonNull)
-            put("databaseFeedByPhase", databaseFeedByPhase?.describe() ?: JsonNull)
+            put(DATABASE_GLOBAL_FEED, databaseGlobalFeed?.describe() ?: JsonNull)
+            put(DATABASE_GAME_FEED, databaseGameFeed?.describe() ?: JsonNull)
+            put(DATABASE_PLAYER_FEED, databasePlayerFeed?.describe() ?: JsonNull)
+            put(DATABASE_TEAM_FEED, databaseTeamFeed?.describe() ?: JsonNull)
+            put(DATABASE_STORY_FEED, databaseStoryFeed?.describe() ?: JsonNull)
+            put(DATABASE_FEED_BY_PHASE, databaseFeedByPhase?.describe() ?: JsonNull)
 
-            put("databasePlayerNames", databasePlayerNames?.describe() ?: JsonNull)
-            put("databasePlayers", databasePlayers?.describe() ?: JsonNull)
-            put("databaseOffseasonRecap", databaseOffseasonRecap?.describe() ?: JsonNull)
-            put("databaseOffseasonSetup", databaseOffseasonSetup?.describe() ?: JsonNull)
+            put(DATABASE_PLAYER_NAMES_AND_IDS, databasePlayerNames?.describe() ?: JsonNull)
+            put(DATABASE_PLAYERS, databasePlayers?.describe() ?: JsonNull)
+            put(DATABASE_OFFSEASON_RECAP, databaseOffseasonRecap?.describe() ?: JsonNull)
+            put(DATABASE_OFFSEASON_SETUP, databaseOffseasonSetup?.describe() ?: JsonNull)
 
-            put("databaseSunSun", databaseSunSun?.describe() ?: JsonNull)
-            put("databaseVault", databaseVault?.describe() ?: JsonNull)
+            put(DATABASE_SUN_SUN, databaseSunSun?.describe() ?: JsonNull)
+            put(DATABASE_VAULT, databaseVault?.describe() ?: JsonNull)
 
-            put("databaseAllDivisions", databaseAllDivisions?.describe() ?: JsonNull)
-            put("databaseAllTeams", databaseAllTeams?.describe() ?: JsonNull)
+            put(DATABASE_ALL_DIVISIONS, databaseAllDivisions?.describe() ?: JsonNull)
+            put(DATABASE_ALL_TEAMS, databaseAllTeams?.describe() ?: JsonNull)
 
-            put("databaseCommunityChestProgress", databaseCommunityChestProgress?.describe() ?: JsonNull)
-            put("databaseBonusResults", databaseBonusResults?.describe() ?: JsonNull)
-            put("databaseDecreeResults", databaseDecreeResults?.describe() ?: JsonNull)
-            put("databaseEventResults", databaseEventResults?.describe() ?: JsonNull)
+            put(DATABASE_COMMUNITY_CHEST_PROGRESS, databaseCommunityChestProgress?.describe() ?: JsonNull)
+            put(DATABASE_BONUS_RESULTS, databaseBonusResults?.describe() ?: JsonNull)
+            put(DATABASE_DECREE_RESULTS, databaseDecreeResults?.describe() ?: JsonNull)
+            put(DATABASE_EVENT_RESULTS, databaseEventResults?.describe() ?: JsonNull)
 
-            put("databaseGameById", databaseGameById?.describe() ?: JsonNull)
-            put("databaseGetPreviousChamp", databaseGetPreviousChamp?.describe() ?: JsonNull)
-            put("databaseGiftProgress", databaseGiftProgress?.describe() ?: JsonNull)
+            put(DATABASE_GAME_BY_ID, databaseGameById?.describe() ?: JsonNull)
+            put(DATABASE_GET_PREVIOUS_CHAMP, databaseGetPreviousChamp?.describe() ?: JsonNull)
+            put(DATABASE_GIFT_PROGRESS, databaseGiftProgress?.describe() ?: JsonNull)
 
-            put("databaseItems", databaseItems?.describe() ?: JsonNull)
-            put("databasePlayersByItemId", databasePlayersByItemId?.describe() ?: JsonNull)
-            put("databasePlayoffs", databasePlayoffs?.describe() ?: JsonNull)
-            put("databaseRenovationProgress", databaseRenovationProgress?.describe() ?: JsonNull)
-            put("databaseRenovations", databaseRenovations?.describe() ?: JsonNull)
+            put(DATABASE_ITEMS, databaseItems?.describe() ?: JsonNull)
+            put(DATABASE_PLAYERS_BY_ITEM_ID, databasePlayersByItemId?.describe() ?: JsonNull)
+            put(DATABASE_PLAYOFFS, databasePlayoffs?.describe() ?: JsonNull)
+            put(DATABASE_RENOVATION_PROGRESS, databaseRenovationProgress?.describe() ?: JsonNull)
+            put(DATABASE_RENOVATIONS, databaseRenovations?.describe() ?: JsonNull)
 
-            put("databaseSubleague", databaseSubleague?.describe() ?: JsonNull)
-            put("databaseTeam", databaseTeam?.describe() ?: JsonNull)
-            put("databaseTeamElectionStats", databaseTeamElectionStats?.describe() ?: JsonNull)
+            put(DATABASE_SUBLEAGUE, databaseSubleague?.describe() ?: JsonNull)
+            put(DATABASE_TEAM, databaseTeam?.describe() ?: JsonNull)
+            put(DATABASE_TEAM_ELECTION_STATS, databaseTeamElectionStats?.describe() ?: JsonNull)
 
-            put("eventsStreamData", eventsStreamData?.describe() ?: JsonNull)
+            put(EVENTS_STREAM_DATA, eventsStreamData?.describe() ?: JsonNull)
         }
 
     init {
