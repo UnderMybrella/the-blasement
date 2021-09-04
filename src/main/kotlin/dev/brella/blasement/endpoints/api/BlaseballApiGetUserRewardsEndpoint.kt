@@ -3,6 +3,9 @@ package dev.brella.blasement.endpoints.api
 import dev.brella.blasement.data.BlasementLeague
 import dev.brella.blasement.data.Request
 import dev.brella.blasement.endpoints.BlaseballEndpoint
+import dev.brella.blasement.endpoints.JsonTransformer
+import dev.brella.blasement.endpoints.Static
+import dev.brella.blasement.getJsonArrayOrNull
 import dev.brella.blasement.getStringOrNull
 import dev.brella.kornea.errors.common.KorneaResult
 import dev.brella.kornea.errors.common.successPooled
@@ -29,16 +32,6 @@ interface BlaseballApiGetUserRewardsEndpoint : BlaseballEndpoint {
         override fun describe() = JsonPrimitive("empty")
     }
 
-    data class Static(val data: JsonElement?): BlaseballApiGetUserRewardsEndpoint {
-        override suspend fun getDataFor(league: BlasementLeague, request: Request): JsonElement? =
-            data
-
-        override fun describe() = buildJsonObject {
-            put("type", "static")
-            put("data", data ?: JsonNull)
-        }
-    }
-
     companion object {
         infix fun loadFrom(config: JsonElement?): KorneaResult<BlaseballApiGetUserRewardsEndpoint?> {
             return KorneaResult.successPooled(
@@ -53,7 +46,7 @@ interface BlaseballApiGetUserRewardsEndpoint : BlaseballEndpoint {
                     is JsonObject ->
                         when (val type = config.getStringOrNull("type")?.lowercase(Locale.getDefault())) {
                             "empty" -> Empty
-                            "static" -> Static(config["data"])
+                            "static" -> Static(config["data"] ?: JsonNull, JsonTransformer loadAllFrom config.getJsonArrayOrNull("transformers"))
                             else -> return KorneaResult.errorAsIllegalArgument(-1, "Unknown type '$type'")
                         }
                     else -> return KorneaResult.errorAsIllegalArgument(-1, "Unknown endpoint object '$config'")

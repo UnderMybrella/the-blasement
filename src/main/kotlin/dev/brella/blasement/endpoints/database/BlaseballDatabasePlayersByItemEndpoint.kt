@@ -3,6 +3,10 @@ package dev.brella.blasement.endpoints.database
 import dev.brella.blasement.data.BlasementLeague
 import dev.brella.blasement.data.Request
 import dev.brella.blasement.endpoints.BlaseballEndpoint
+import dev.brella.blasement.endpoints.JsonTransformer
+import dev.brella.blasement.endpoints.Live
+import dev.brella.blasement.endpoints.Static
+import dev.brella.blasement.endpoints.invoke
 import dev.brella.blasement.getChroniclerEntityList
 import dev.brella.blasement.getJsonArrayOrNull
 import dev.brella.blasement.getString
@@ -22,67 +26,54 @@ import kotlinx.serialization.json.put
 import java.util.*
 
 interface BlaseballDatabasePlayersByItemEndpoint : BlaseballEndpoint {
-    object ChroniclerInefficient : BlaseballDatabasePlayersByItemEndpoint {
+    data class ChroniclerInefficient(val transformers: List<JsonTransformer> = emptyList()) : BlaseballDatabasePlayersByItemEndpoint {
         override suspend fun getDataFor(league: BlasementLeague, request: Request): JsonElement? {
             val id = request.call.request.queryParameters["id"] ?: return null
-            return league.httpClient.getChroniclerEntityList("player", league.clock.getTime())
-                ?.mapNotNull { element ->
-                    val player = element as? JsonObject ?: return@mapNotNull null
-                    val items = player.getJsonArrayOrNull("items")
-                                    ?.filterIsInstance<JsonObject>()
-                                ?: return@mapNotNull null
+            return transformers {
+                league.httpClient.getChroniclerEntityList("player", league.clock.getTime())
+                    ?.mapNotNull { element ->
+                        val player = element as? JsonObject ?: return@mapNotNull null
+                        val items = player.getJsonArrayOrNull("items")
+                                        ?.filterIsInstance<JsonObject>()
+                                    ?: return@mapNotNull null
 
-                    if (items.any { it.getStringOrNull("id") == id }) {
-                        return@mapNotNull JsonObject(player + Pair("items", JsonArray(items.map { it.getValue("id") })))
-                    } else {
-                        return@mapNotNull null
+                        if (items.any { it.getStringOrNull("id") == id }) {
+                            return@mapNotNull JsonObject(player + Pair("items", JsonArray(items.map { it.getValue("id") })))
+                        } else {
+                            return@mapNotNull null
+                        }
                     }
-                }
-                ?.let(::JsonArray)
+                    ?.let(::JsonArray)
+                ?: JsonNull
+            }
         }
 
-        override fun describe(): JsonElement? =
-            JsonPrimitive("chronicler")
-    }
-
-    object Live : BlaseballDatabasePlayersByItemEndpoint {
-        override suspend fun getDataFor(league: BlasementLeague, request: Request): JsonElement? =
-            league.httpClient.get("https://www.blaseball.com/database/playersByItemId") {
-                parameter("id", request.call.request.queryParameters["id"])
-            }
-
-        override fun describe(): JsonElement? =
-            JsonPrimitive("live")
-    }
-
-    data class Static(val data: JsonElement?): BlaseballDatabasePlayersByItemEndpoint {
-        override suspend fun getDataFor(league: BlasementLeague, request: Request): JsonElement? =
-            data
-
-        override fun describe(): JsonElement? =
+        override fun describe(): JsonElement =
             buildJsonObject {
-                put("type", "static")
-                put("data", data ?: JsonNull)
+                put("type", "chronicler")
+                put("transformers", JsonArray(transformers.map(JsonTransformer::describe)))
             }
     }
 
     companion object {
+        const val PATH = "/database/playersByItemId"
+
         infix fun loadFrom(config: JsonElement?): KorneaResult<BlaseballDatabasePlayersByItemEndpoint?> {
             return KorneaResult.successPooled(
                 when (config) {
                     JsonNull -> null
-                    null -> ChroniclerInefficient
+                    null -> ChroniclerInefficient()
                     is JsonPrimitive ->
                         when (val type = config.contentOrNull?.lowercase(Locale.getDefault())) {
-                            "chronicler" -> ChroniclerInefficient
-                            "live" -> Live
+                            "chronicler" -> ChroniclerInefficient()
+                            "live" -> Live(PATH)
                             else -> return KorneaResult.errorAsIllegalArgument(-1, "Unknown endpoint string '$type'")
                         }
                     is JsonObject ->
                         when (val type = config.getStringOrNull("type")?.lowercase(Locale.getDefault())) {
-                            "chronicler" -> ChroniclerInefficient
-                            "live" -> Live
-                            "static" -> Static(config["data"])
+                            "chronicler" -> ChroniclerInefficient(JsonTransformer loadAllFrom config.getJsonArrayOrNull("transformers"))
+                            "live" -> Live(PATH, JsonTransformer loadAllFrom config.getJsonArrayOrNull("transformers"))
+                            "static" -> Static(config["data"] ?: JsonNull, JsonTransformer loadAllFrom config.getJsonArrayOrNull("transformers"))
                             else -> return KorneaResult.errorAsIllegalArgument(-1, "Unknown type '$type'")
                         }
                     else -> return KorneaResult.errorAsIllegalArgument(-1, "Unknown endpoint object '$config'")

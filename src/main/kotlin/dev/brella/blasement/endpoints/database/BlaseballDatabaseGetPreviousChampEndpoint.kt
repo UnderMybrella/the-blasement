@@ -3,13 +3,18 @@ package dev.brella.blasement.endpoints.database
 import dev.brella.blasement.data.BlasementLeague
 import dev.brella.blasement.data.Request
 import dev.brella.blasement.endpoints.BlaseballEndpoint
+import dev.brella.blasement.endpoints.JsonTransformer
+import dev.brella.blasement.endpoints.Static
+import dev.brella.blasement.endpoints.invoke
 import dev.brella.blasement.getChroniclerEntity
+import dev.brella.blasement.getJsonArrayOrNull
 import dev.brella.blasement.getStringOrNull
 import dev.brella.kornea.errors.common.KorneaResult
 import dev.brella.kornea.errors.common.successPooled
 import io.ktor.application.*
 import io.ktor.client.request.*
 import kotlinx.datetime.Instant
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
@@ -60,18 +65,18 @@ interface BlaseballDatabaseGetPreviousChampEndpoint : BlaseballEndpoint {
             return KorneaResult.successPooled(
                 when (config) {
                     JsonNull -> null
-                    null -> QueryLookup
+                    null -> QueryLookup()
                     is JsonPrimitive ->
                         when (val type = config.contentOrNull?.lowercase(Locale.getDefault())) {
-                            "querylookup", "query_lookup", "query lookup" -> QueryLookup
-                            "live" -> Live
+                            "querylookup", "query_lookup", "query lookup" -> QueryLookup()
+                            "live" -> Live()
                             else -> return KorneaResult.errorAsIllegalArgument(-1, "Unknown endpoint string '$type'")
                         }
                     is JsonObject ->
                         when (val type = config.getStringOrNull("type")?.lowercase(Locale.getDefault())) {
-                            "querylookup", "query_lookup", "query lookup" -> QueryLookup
-                            "live" -> Live
-                            "static" -> Static(config["data"])
+                            "querylookup", "query_lookup", "query lookup" -> QueryLookup(JsonTransformer loadAllFrom config.getJsonArrayOrNull("transformers"))
+                            "live" -> Live(JsonTransformer loadAllFrom config.getJsonArrayOrNull("transformers"))
+                            "static" -> Static(config["data"] ?: JsonNull, JsonTransformer loadAllFrom config.getJsonArrayOrNull("transformers"))
                             else -> return KorneaResult.errorAsIllegalArgument(-1, "Unknown type '$type'")
                         }
                     else -> return KorneaResult.errorAsIllegalArgument(-1, "Unknown endpoint object '$config'")
@@ -80,7 +85,7 @@ interface BlaseballDatabaseGetPreviousChampEndpoint : BlaseballEndpoint {
         }
     }
 
-    object QueryLookup : BlaseballDatabaseGetPreviousChampEndpoint {
+    data class QueryLookup(val transformers: List<JsonTransformer> = emptyList()) : BlaseballDatabaseGetPreviousChampEndpoint {
         override suspend fun getDataFor(league: BlasementLeague, request: Request): JsonElement? {
             if (league.siteDataClock.getTime() < OVER_UNDER_CHAMPIONSHIP_CHANGE) {
                 val time = league.clock.getTime()
@@ -88,31 +93,35 @@ interface BlaseballDatabaseGetPreviousChampEndpoint : BlaseballEndpoint {
                     ?.toIntOrNull()
                     ?.let(OVERBRACKET_CHAMPIONS::get)
                     ?.let { id ->
-                        league.httpClient.getChroniclerEntity("team", time) {
-                            parameter("id", id)
+                        transformers {
+                            league.httpClient.getChroniclerEntity("team", time) {
+                                parameter("id", id)
+                            } ?: JsonNull
                         }
                     }
             } else {
                 val time = league.clock.getTime()
-                return buildJsonObject {
-                    val season = request.call.request.queryParameters["season"]
-                        ?.toIntOrNull()
+                return transformers {
+                    buildJsonObject {
+                        val season = request.call.request.queryParameters["season"]
+                            ?.toIntOrNull()
 
-                    season
-                        ?.let(OVERBRACKET_CHAMPIONS::get)
-                        ?.let { id ->
-                            put("over", league.httpClient.getChroniclerEntity("team", time) {
-                                parameter("id", id)
-                            } ?: JsonNull)
-                        }
+                        season
+                            ?.let(OVERBRACKET_CHAMPIONS::get)
+                            ?.let { id ->
+                                put("over", league.httpClient.getChroniclerEntity("team", time) {
+                                    parameter("id", id)
+                                } ?: JsonNull)
+                            }
 
-                    season
-                        ?.let(UNDERBRACKET_CHAMPIONS::get)
-                        ?.let { id ->
-                            put("under", league.httpClient.getChroniclerEntity("team", time) {
-                                parameter("id", id)
-                            } ?: JsonNull)
-                        }
+                        season
+                            ?.let(UNDERBRACKET_CHAMPIONS::get)
+                            ?.let { id ->
+                                put("under", league.httpClient.getChroniclerEntity("team", time) {
+                                    parameter("id", id)
+                                } ?: JsonNull)
+                            }
+                    }
                 }
             }
         }
@@ -121,7 +130,7 @@ interface BlaseballDatabaseGetPreviousChampEndpoint : BlaseballEndpoint {
             JsonPrimitive("query_lookup")
     }
 
-    object TimeLookup : BlaseballDatabaseGetPreviousChampEndpoint {
+    data class TimeLookup(val transformers: List<JsonTransformer> = emptyList()) : BlaseballDatabaseGetPreviousChampEndpoint {
         override suspend fun getDataFor(league: BlasementLeague, request: Request): JsonElement? {
             if (league.siteDataClock.getTime() < OVER_UNDER_CHAMPIONSHIP_CHANGE) {
                 val time = league.clock.getTime()
@@ -129,31 +138,35 @@ interface BlaseballDatabaseGetPreviousChampEndpoint : BlaseballEndpoint {
                     ?.toIntOrNull()
                     ?.let(OVERBRACKET_CHAMPIONS::get)
                     ?.let { id ->
-                        league.httpClient.getChroniclerEntity("team", time) {
-                            parameter("id", id)
+                        transformers {
+                            league.httpClient.getChroniclerEntity("team", time) {
+                                parameter("id", id)
+                            } ?: JsonNull
                         }
                     }
             } else {
                 val time = league.clock.getTime()
-                return buildJsonObject {
-                    val season = request.call.request.queryParameters["season"]
-                        ?.toIntOrNull()
+                return transformers {
+                    buildJsonObject {
+                        val season = request.call.request.queryParameters["season"]
+                            ?.toIntOrNull()
 
-                    season
-                        ?.let(OVERBRACKET_CHAMPIONS::get)
-                        ?.let { id ->
-                            put("over", league.httpClient.getChroniclerEntity("team", time) {
-                                parameter("id", id)
-                            } ?: JsonNull)
-                        }
+                        season
+                            ?.let(OVERBRACKET_CHAMPIONS::get)
+                            ?.let { id ->
+                                put("over", league.httpClient.getChroniclerEntity("team", time) {
+                                    parameter("id", id)
+                                } ?: JsonNull)
+                            }
 
-                    season
-                        ?.let(UNDERBRACKET_CHAMPIONS::get)
-                        ?.let { id ->
-                            put("under", league.httpClient.getChroniclerEntity("team", time) {
-                                parameter("id", id)
-                            } ?: JsonNull)
-                        }
+                        season
+                            ?.let(UNDERBRACKET_CHAMPIONS::get)
+                            ?.let { id ->
+                                put("under", league.httpClient.getChroniclerEntity("team", time) {
+                                    parameter("id", id)
+                                } ?: JsonNull)
+                            }
+                    }
                 }
             }
         }
@@ -162,29 +175,23 @@ interface BlaseballDatabaseGetPreviousChampEndpoint : BlaseballEndpoint {
             JsonPrimitive("query_lookup")
     }
 
-    object Live : BlaseballDatabaseGetPreviousChampEndpoint {
+    data class Live(val transformers: List<JsonTransformer> = emptyList()) : BlaseballDatabaseGetPreviousChampEndpoint {
         override suspend fun getDataFor(league: BlasementLeague, request: Request): JsonElement? =
-            league.httpClient.get<JsonObject>("https://www.blaseball.com/database/getPreviousChamp") {
-                parameter("season", request.call.request.queryParameters["season"])
-            }.let { json ->
-                if (league.siteDataClock.getTime() < OVER_UNDER_CHAMPIONSHIP_CHANGE)
-                    json["over"]
-                else
-                    json
+            transformers {
+                league.httpClient.get<JsonObject>("https://www.blaseball.com/database/getPreviousChamp") {
+                    parameter("season", request.call.request.queryParameters["season"])
+                }.let { json ->
+                    if (league.siteDataClock.getTime() < OVER_UNDER_CHAMPIONSHIP_CHANGE)
+                        json["over"] ?: JsonNull
+                    else
+                        json
+                }
             }
 
-        override fun describe(): JsonElement? =
-            JsonPrimitive("live")
-    }
-
-    data class Static(val data: JsonElement?) : BlaseballDatabaseGetPreviousChampEndpoint {
-        override suspend fun getDataFor(league: BlasementLeague, request: Request): JsonElement? =
-            data
-
-        override fun describe(): JsonElement? =
+        override fun describe(): JsonElement =
             buildJsonObject {
-                put("type", "static")
-                put("data", data ?: JsonNull)
+                put("type", "live")
+                put("transformers", JsonArray(transformers.map(JsonTransformer::describe)))
             }
     }
 

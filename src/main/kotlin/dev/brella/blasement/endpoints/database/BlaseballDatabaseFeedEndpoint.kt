@@ -4,7 +4,12 @@ import dev.brella.blasement.data.BlasementLeague
 import dev.brella.blasement.data.BlasementLeagueBuilder
 import dev.brella.blasement.data.Request
 import dev.brella.blasement.endpoints.BlaseballEndpoint
+import dev.brella.blasement.endpoints.JsonTransformer
+import dev.brella.blasement.endpoints.Live
+import dev.brella.blasement.endpoints.Static
 import dev.brella.blasement.endpoints.api.BlaseballApiGetUserRewardsEndpoint
+import dev.brella.blasement.endpoints.invoke
+import dev.brella.blasement.getJsonArrayOrNull
 import dev.brella.blasement.getStringOrNull
 import dev.brella.kornea.errors.common.KorneaResult
 import dev.brella.kornea.errors.common.successPooled
@@ -22,37 +27,39 @@ interface BlaseballDatabaseFeedEndpoint : BlaseballEndpoint {
     interface Team : BlaseballDatabaseFeedEndpoint
     interface Story : BlaseballDatabaseFeedEndpoint
 
-    class Upnuts(vararg val providers: String, val type: String) : Game, Global, Player, Team, Story {
+    class Upnuts(vararg val providers: String, val type: String, val transformers: List<JsonTransformer> = emptyList()) : Game, Global, Player, Team, Story {
         companion object {
             const val TGB = "7fcb63bc-11f2-40b9-b465-f1d458692a63"
 
-            operator fun invoke(type: String, builder: Companion.() -> Array<out String>): Upnuts =
-                Upnuts(providers = builder(), type = type)
+            operator fun invoke(type: String, transformers: List<JsonTransformer> = emptyList(), builder: Companion.() -> Array<out String>): Upnuts =
+                Upnuts(providers = builder(), type = type, transformers = transformers)
 
-            inline fun global(builder: Companion.() -> Array<out String>): Upnuts =
-                Upnuts(providers = builder(), type = "global")
+            inline fun global(transformers: List<JsonTransformer> = emptyList(), builder: Companion.() -> Array<out String>): Upnuts =
+                Upnuts(providers = builder(), type = "global", transformers = transformers)
 
-            inline fun game(builder: Companion.() -> Array<out String>): Upnuts =
-                Upnuts(providers = builder(), type = "game")
+            inline fun game(transformers: List<JsonTransformer> = emptyList(), builder: Companion.() -> Array<out String>): Upnuts =
+                Upnuts(providers = builder(), type = "game", transformers = transformers)
 
-            inline fun team(builder: Companion.() -> Array<out String>): Upnuts =
-                Upnuts(providers = builder(), type = "team")
+            inline fun team(transformers: List<JsonTransformer> = emptyList(), builder: Companion.() -> Array<out String>): Upnuts =
+                Upnuts(providers = builder(), type = "team", transformers = transformers)
 
-            inline fun player(builder: Companion.() -> Array<out String>): Upnuts =
-                Upnuts(providers = builder(), type = "player")
+            inline fun player(transformers: List<JsonTransformer> = emptyList(), builder: Companion.() -> Array<out String>): Upnuts =
+                Upnuts(providers = builder(), type = "player", transformers = transformers)
 
-            inline fun story(builder: Companion.() -> Array<out String>): Upnuts =
-                Upnuts(providers = builder(), type = "story")
+            inline fun story(transformers: List<JsonTransformer> = emptyList(), builder: Companion.() -> Array<out String>): Upnuts =
+                Upnuts(providers = builder(), type = "story", transformers = transformers)
         }
 
         override suspend fun getDataFor(league: BlasementLeague, request: Request): JsonElement =
-            league.httpClient.get<JsonArray>("https://api.sibr.dev/upnuts/feed/$type") {
-                request.call.request.queryParameters.flattenForEach { k, v -> parameter(k, v) }
-                parameter("time", league.clock.getTime().toEpochMilliseconds())
-                parameter("one_of_providers", providers.joinToString(","))
+            transformers {
+                league.httpClient.get<JsonArray>("https://api.sibr.dev/upnuts/feed/$type") {
+                    request.call.request.queryParameters.flattenForEach { k, v -> parameter(k, v) }
+                    parameter("time", league.clock.getTime().toEpochMilliseconds())
+                    parameter("one_of_providers", providers.joinToString(","))
 
-                timeout {
-                    socketTimeoutMillis = 20_000
+                    timeout {
+                        socketTimeoutMillis = 20_000
+                    }
                 }
             }
 
@@ -62,34 +69,13 @@ interface BlaseballDatabaseFeedEndpoint : BlaseballEndpoint {
                 putJsonArray("providers") {
                     providers.forEach { add(it) }
                 }
-            }
-    }
-
-    class Live(val type: String): Game, Global, Player, Team, Story {
-        override suspend fun getDataFor(league: BlasementLeague, request: Request): JsonElement =
-            league.httpClient.get<JsonArray>("https://www.blaseball.com/database/feed/$type") {
-                request.call.request.queryParameters.flattenForEach { k, v -> parameter(k, v) }
-
-                timeout {
-                    socketTimeoutMillis = 20_000
-                }
-            }
-
-        override fun describe(): JsonElement? =
-            JsonPrimitive("live")
-    }
-
-    data class Static(val feed: JsonElement?) : Game, Global, Player, Team, Story {
-        override suspend fun getDataFor(league: BlasementLeague, request: Request): JsonElement? = feed
-
-        override fun describe(): JsonElement? =
-            buildJsonObject {
-                put("type", "static")
-                put("data", feed ?: JsonNull)
+                put("transformers", JsonArray(transformers.map(JsonTransformer::describe)))
             }
     }
 
     companion object {
+        const val PATH = "/database/feed"
+
         infix fun loadGlobalFrom(config: JsonElement?): KorneaResult<Global?> {
             return KorneaResult.successPooled(
                 when (config) {
@@ -98,14 +84,14 @@ interface BlaseballDatabaseFeedEndpoint : BlaseballEndpoint {
                     is JsonPrimitive ->
                         when (val type = config.contentOrNull?.lowercase(Locale.getDefault())) {
                             "upnuts" -> Upnuts(Upnuts.TGB, type = "global")
-                            "live" -> Live("global")
+                            "live" -> Live("$PATH/global")
                             else -> return KorneaResult.errorAsIllegalArgument(-1, "Unknown endpoint string '$type'")
                         }
                     is JsonObject ->
                         when (val type = config.getStringOrNull("type")?.lowercase(Locale.getDefault())) {
-                            "upnuts" -> Upnuts(Upnuts.TGB, type = "global")
-                            "live" -> Live("global")
-                            "static" -> Static(config["data"])
+                            "upnuts" -> Upnuts(Upnuts.TGB, type = "global", transformers = JsonTransformer loadAllFrom config.getJsonArrayOrNull("transformers"))
+                            "live" -> Live("$PATH/global", transformers = JsonTransformer loadAllFrom config.getJsonArrayOrNull("transformers"))
+                            "static" -> Static(config["data"] ?: JsonNull, JsonTransformer loadAllFrom config.getJsonArrayOrNull("transformers"))
                             else -> return KorneaResult.errorAsIllegalArgument(-1, "Unknown type '$type'")
                         }
                     else -> return KorneaResult.errorAsIllegalArgument(-1, "Unknown endpoint object '$config'")
@@ -121,14 +107,14 @@ interface BlaseballDatabaseFeedEndpoint : BlaseballEndpoint {
                     is JsonPrimitive ->
                         when (val type = config.contentOrNull?.lowercase(Locale.getDefault())) {
                             "upnuts" -> Upnuts(Upnuts.TGB, type = "game")
-                            "live" -> Live("game")
+                            "live" -> Live("$PATH/game")
                             else -> return KorneaResult.errorAsIllegalArgument(-1, "Unknown endpoint string '$type'")
                         }
                     is JsonObject ->
                         when (val type = config.getStringOrNull("type")?.lowercase(Locale.getDefault())) {
-                            "upnuts" -> Upnuts(Upnuts.TGB, type = "game")
-                            "live" -> Live("game")
-                            "static" -> Static(config["data"])
+                            "upnuts" -> Upnuts(Upnuts.TGB, type = "game", transformers = JsonTransformer loadAllFrom config.getJsonArrayOrNull("transformers"))
+                            "live" -> Live("$PATH/game", transformers = JsonTransformer loadAllFrom config.getJsonArrayOrNull("transformers"))
+                            "static" -> Static(config["data"] ?: JsonNull, JsonTransformer loadAllFrom config.getJsonArrayOrNull("transformers"))
                             else -> return KorneaResult.errorAsIllegalArgument(-1, "Unknown type '$type'")
                         }
                     else -> return KorneaResult.errorAsIllegalArgument(-1, "Unknown endpoint object '$config'")
@@ -144,14 +130,14 @@ interface BlaseballDatabaseFeedEndpoint : BlaseballEndpoint {
                     is JsonPrimitive ->
                         when (val type = config.contentOrNull?.lowercase(Locale.getDefault())) {
                             "upnuts" -> Upnuts(Upnuts.TGB, type = "player")
-                            "live" -> Live("player")
+                            "live" -> Live("$PATH/player")
                             else -> return KorneaResult.errorAsIllegalArgument(-1, "Unknown endpoint string '$type'")
                         }
                     is JsonObject ->
                         when (val type = config.getStringOrNull("type")?.lowercase(Locale.getDefault())) {
-                            "upnuts" -> Upnuts(Upnuts.TGB, type = "player")
-                            "live" -> Live("player")
-                            "static" -> Static(config["data"])
+                            "upnuts" -> Upnuts(Upnuts.TGB, type = "player", transformers = JsonTransformer loadAllFrom config.getJsonArrayOrNull("transformers"))
+                            "live" -> Live("$PATH/player", transformers = JsonTransformer loadAllFrom config.getJsonArrayOrNull("transformers"))
+                            "static" -> Static(config["data"] ?: JsonNull, JsonTransformer loadAllFrom config.getJsonArrayOrNull("transformers"))
                             else -> return KorneaResult.errorAsIllegalArgument(-1, "Unknown type '$type'")
                         }
                     else -> return KorneaResult.errorAsIllegalArgument(-1, "Unknown endpoint object '$config'")
@@ -167,14 +153,14 @@ interface BlaseballDatabaseFeedEndpoint : BlaseballEndpoint {
                     is JsonPrimitive ->
                         when (val type = config.contentOrNull?.lowercase(Locale.getDefault())) {
                             "upnuts" -> Upnuts(Upnuts.TGB, type = "team")
-                            "live" -> Live("team")
+                            "live" -> Live("$PATH/team")
                             else -> return KorneaResult.errorAsIllegalArgument(-1, "Unknown endpoint string '$type'")
                         }
                     is JsonObject ->
                         when (val type = config.getStringOrNull("type")?.lowercase(Locale.getDefault())) {
-                            "upnuts" -> Upnuts(Upnuts.TGB, type = "team")
-                            "live" -> Live("team")
-                            "static" -> Static(config["data"])
+                            "upnuts" -> Upnuts(Upnuts.TGB, type = "team", transformers = JsonTransformer loadAllFrom config.getJsonArrayOrNull("transformers"))
+                            "live" -> Live("$PATH/team", transformers = JsonTransformer loadAllFrom config.getJsonArrayOrNull("transformers"))
+                            "static" -> Static(config["data"] ?: JsonNull, JsonTransformer loadAllFrom config.getJsonArrayOrNull("transformers"))
                             else -> return KorneaResult.errorAsIllegalArgument(-1, "Unknown type '$type'")
                         }
                     else -> return KorneaResult.errorAsIllegalArgument(-1, "Unknown endpoint object '$config'")
@@ -190,14 +176,14 @@ interface BlaseballDatabaseFeedEndpoint : BlaseballEndpoint {
                     is JsonPrimitive ->
                         when (val type = config.contentOrNull?.lowercase(Locale.getDefault())) {
                             "upnuts" -> Upnuts(Upnuts.TGB, type = "story")
-                            "live" -> Live("story")
+                            "live" -> Live("$PATH/story")
                             else -> return KorneaResult.errorAsIllegalArgument(-1, "Unknown endpoint string '$type'")
                         }
                     is JsonObject ->
                         when (val type = config.getStringOrNull("type")?.lowercase(Locale.getDefault())) {
-                            "upnuts" -> Upnuts(Upnuts.TGB, type = "story")
-                            "live" -> Live("story")
-                            "static" -> Static(config["data"])
+                            "upnuts" -> Upnuts(Upnuts.TGB, type = "story", transformers = JsonTransformer loadAllFrom config.getJsonArrayOrNull("transformers"))
+                            "live" -> Live("$PATH/story", transformers = JsonTransformer loadAllFrom config.getJsonArrayOrNull("transformers"))
+                            "static" -> Static(config["data"] ?: JsonNull, JsonTransformer loadAllFrom config.getJsonArrayOrNull("transformers"))
                             else -> return KorneaResult.errorAsIllegalArgument(-1, "Unknown type '$type'")
                         }
                     else -> return KorneaResult.errorAsIllegalArgument(-1, "Unknown endpoint object '$config'")
@@ -220,9 +206,9 @@ inline fun <T> BlasementLeagueBuilder.Database.Feed.setAll(feed: T) where T : Bl
 }
 
 inline fun BlasementLeagueBuilder.Database.Feed.setAllUpnuts(builder: BlaseballDatabaseFeedEndpoint.Upnuts.Companion.() -> Array<out String>) {
-    global = BlaseballDatabaseFeedEndpoint.Upnuts.global(builder)
-    game = BlaseballDatabaseFeedEndpoint.Upnuts.game(builder)
-    player = BlaseballDatabaseFeedEndpoint.Upnuts.player(builder)
-    team = BlaseballDatabaseFeedEndpoint.Upnuts.team(builder)
-    story = BlaseballDatabaseFeedEndpoint.Upnuts.story(builder)
+    global = BlaseballDatabaseFeedEndpoint.Upnuts.global(emptyList(), builder)
+    game = BlaseballDatabaseFeedEndpoint.Upnuts.game(emptyList(), builder)
+    player = BlaseballDatabaseFeedEndpoint.Upnuts.player(emptyList(), builder)
+    team = BlaseballDatabaseFeedEndpoint.Upnuts.team(emptyList(), builder)
+    story = BlaseballDatabaseFeedEndpoint.Upnuts.story(emptyList(), builder)
 }

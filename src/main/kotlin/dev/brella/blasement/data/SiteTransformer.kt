@@ -103,6 +103,62 @@ sealed interface SiteTransformer {
                     .plus(ANCHOR_STYLE)
         }
 
+        object AllowCustomEmojis: InitialTextTransformer {
+            val EMOJI_TO_STRING = "function (\\w+)\\(\\w\\)\\{var \\w=Number\\(\\w\\);return isNaN\\(\\w\\)\\?\\w:String.fromCodePoint\\(\\w\\)\\}".toRegex()
+            val CREATE_ELEMENT = "(\\w\\.\\w)\\.createElement".toRegex()
+
+            override fun transform(data: String): String {
+                val regexLocation = EMOJI_TO_STRING.find(data) ?: return data
+                val createElement = CREATE_ELEMENT.find(data) ?: return data
+
+                return buildString {
+                    append(data)
+
+                    val proxy = createElement.groupValues[1]
+                    val functionName = regexLocation.groupValues[1]
+
+                    replace(regexLocation.range.first, regexLocation.range.last + 1, """
+                        function ${functionName}(e,i,proxy){if ((i!==null && i!==undefined) && proxy !== undefined){return proxy.createElement("img",{src:i,class:"BlasementEmojiIcon"})};var t=Number(e);return isNaN(t)?e:String.fromCodePoint(t)}
+                    """.trimIndent())
+
+                    val simpleFunctionInvocationsOfTeam = "$functionName\\((\\w)\\.(homeEmoji|awayEmoji|homeTeamEmoji|awayTeamEmoji|emoji)\\)".toRegex()
+                    var invocation = simpleFunctionInvocationsOfTeam.find(this)
+
+                    while (invocation != null) {
+                        replace(invocation.range.first, invocation.range.last + 1, "$functionName(${invocation.groupValues[1]}.${invocation.groupValues[2]},${invocation.groupValues[1]}.${invocation.groupValues[2].replace("emoji", "icon").replace("Emoji", "Icon")},$proxy)")
+                        invocation = simpleFunctionInvocationsOfTeam.find(this, invocation.range.first)
+                    }
+
+                    val variableFunctionInvocationsOfTeam = "(\\w)\\s*=\\s*(\\w)\\.(homeEmoji|awayEmoji|homeTeamEmoji|awayTeamEmoji|emoji).+?($functionName\\((\\w)\\))".toRegex()
+                    invocation = variableFunctionInvocationsOfTeam.find(this)
+
+                    while (invocation != null) {
+                        val invocationMatch = invocation.groups[4]!!.range
+                        replace(invocationMatch.first, invocationMatch.last + 1, "$functionName(${invocation.groupValues[5]},${invocation.groupValues[2]}.${invocation.groupValues[3].replace("emoji", "icon").replace("Emoji", "Icon")},$proxy)")
+                        invocation = variableFunctionInvocationsOfTeam.find(this, invocation.range.first)
+                    }
+
+                    val builderInvocations = "emoji\\s*:\\s*(\\w)\\.(homeEmoji|awayEmoji|homeTeamEmoji|awayTeamEmoji|emoji),".toRegex()
+                    invocation = builderInvocations.find(this)
+
+                    while (invocation != null) {
+                        insert(invocation.range.last + 1, "icon:${invocation.groupValues[1]}.${invocation.groupValues[2].replace("emoji", "icon").replace("Emoji", "Icon")},")
+                        invocation = builderInvocations.find(this, invocation.range.last + 1)
+                    }
+                }
+            }
+        }
+        object AddCustomEmojisCss: InitialTextTransformer {
+            override fun transform(data: String): String? =
+                data.plus("""
+                    .BlasementEmojiIcon {
+                        width:75%;
+                        margin:auto;
+                        display:block;
+                    }
+                """.trimIndent())
+        }
+
         fun transform(data: String): String?
     }
 

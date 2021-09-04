@@ -177,6 +177,9 @@ data class BlasementLeague(
     }
 
     override val coroutineContext: CoroutineContext = SupervisorJob()
+    val liveBaseUrl = "https://www.blaseball.com"
+    val chroniclerBaseUrl = "https://api.sibr.dev/chronicler"
+
     val siteData = BlasementSiteData(
         httpClient, indexHtmlTransformers = listOf(
             SiteTransformer.InitialTextTransformer.ReplaceStaticAssets("/leagues/$leagueID")
@@ -184,12 +187,14 @@ data class BlasementLeague(
         mainJsTransformers = listOf(
             SiteTransformer.InitialTextTransformer.ReplaceApiCalls("/leagues/$leagueID"),
             SiteTransformer.InitialTextTransformer.AddNewBeingsJs,
+            SiteTransformer.InitialTextTransformer.AllowCustomEmojis,
 
             SiteTransformer.FinalTextTransformer.ReplaceTimeWithWebsocket("/leagues/$leagueID"),
         ),
         twoJsTransformers = listOf(),
         mainCssTransformers = listOf(
-            SiteTransformer.InitialTextTransformer.AddTweetStylesCss
+            SiteTransformer.InitialTextTransformer.AddTweetStylesCss,
+            SiteTransformer.InitialTextTransformer.AddCustomEmojisCss
         ),
         siteDataClock
     )
@@ -201,7 +206,7 @@ data class BlasementLeague(
 
     @OptIn(ExperimentalTime::class)
     val temporalFlow: SharedFlow<String> =
-        flow {
+        flow<String> {
             loopEvery(clock.temporalUpdateTime, { isActive }) {
                 emit(clock.getTime().toEpochMilliseconds().toString())
             }

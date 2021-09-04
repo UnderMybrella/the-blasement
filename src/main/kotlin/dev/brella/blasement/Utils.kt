@@ -39,11 +39,34 @@ public suspend inline fun HttpClient.getChroniclerEntity(type: String, at: Strin
         builder()
     }["items"] as? JsonArray)?.firstOrNull() as? JsonObject)?.get("data")
 
+public suspend inline fun HttpClient.getChroniclerEntity(chroniclerBaseDomain: String, type: String, at: Instant, builder: HttpRequestBuilder.() -> Unit = {}) =
+    getChroniclerEntity(chroniclerBaseDomain, type, at.toString(), builder)
+
+public suspend inline fun HttpClient.getChroniclerEntity(chroniclerBaseDomain: String, type: String, at: String, builder: HttpRequestBuilder.() -> Unit = {}) =
+    ((get<JsonObject>("${chroniclerBaseDomain}/v2/entities") {
+        parameter("type", type)
+        parameter("at", at)
+
+        builder()
+    }["items"] as? JsonArray)?.firstOrNull() as? JsonObject)?.get("data")
+
 public suspend inline fun HttpClient.getChroniclerEntityList(type: String, at: Instant, builder: HttpRequestBuilder.() -> Unit = {}) =
     getChroniclerEntityList(type, at.toString(), builder)
 
 public suspend inline fun HttpClient.getChroniclerEntityList(type: String, at: String, builder: HttpRequestBuilder.() -> Unit = {}) =
     (get<JsonObject>("https://api.sibr.dev/chronicler/v2/entities") {
+        parameter("type", type)
+        parameter("at", at)
+
+        builder()
+    }["items"] as? JsonArray)?.mapNotNull { (it as? JsonObject)?.get("data") }
+
+
+public suspend inline fun HttpClient.getChroniclerEntityList(baseDomain: String, type: String, at: Instant, builder: HttpRequestBuilder.() -> Unit = {}) =
+    getChroniclerEntityList(baseDomain, type, at.toString(), builder)
+
+public suspend inline fun HttpClient.getChroniclerEntityList(baseDomain: String, type: String, at: String, builder: HttpRequestBuilder.() -> Unit = {}) =
+    (get<JsonObject>("${baseDomain}/v2/entities") {
         parameter("type", type)
         parameter("at", at)
 

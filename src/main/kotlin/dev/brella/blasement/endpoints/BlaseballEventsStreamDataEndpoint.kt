@@ -7,6 +7,7 @@ import dev.brella.blasement.getBooleanOrNull
 import dev.brella.blasement.getChroniclerEntity
 import dev.brella.blasement.getChroniclerVersionsBefore
 import dev.brella.blasement.getIntOrNull
+import dev.brella.blasement.getJsonArrayOrNull
 import dev.brella.blasement.getJsonObjectOrNull
 import dev.brella.blasement.getStringOrNull
 import dev.brella.blasement.loopEvery
@@ -14,6 +15,7 @@ import dev.brella.blasement.plugins.json
 import dev.brella.kornea.errors.common.KorneaResult
 import dev.brella.kornea.errors.common.cast
 import dev.brella.kornea.errors.common.getOrBreak
+import dev.brella.kornea.errors.common.getOrNull
 import dev.brella.kornea.errors.common.successPooled
 import io.ktor.application.*
 import io.ktor.client.features.websocket.*
@@ -42,7 +44,7 @@ import kotlin.time.ExperimentalTime
 
 //This is a bit of a misnomer honestly, since we're not setting up an 'endpoint'
 interface BlaseballEventsStreamDataEndpoint : BlaseballEndpoint {
-    object Chronicler : BlaseballEventsStreamDataEndpoint {
+    data class Chronicler(val transformers: List<JsonTransformer> = emptyList()) : BlaseballEventsStreamDataEndpoint {
         val WEATHER = arrayOf(
             "Void",
             "Sun 2",
@@ -139,34 +141,38 @@ interface BlaseballEventsStreamDataEndpoint : BlaseballEndpoint {
                                 }
                         }*/
 
-                    emit(stream.deepSort().toString())
+                    emit(transformers(stream.deepSort()).toString())
                 }
             }.shareIn(league, SharingStarted.Eagerly, 1)
 
-        override fun describe(): JsonElement? =
-            JsonPrimitive("chronicler")
+        override fun describe(): JsonElement =
+            buildJsonObject {
+                put("type", "chronicler")
+                put("transformers", JsonArray(transformers.map(JsonTransformer::describe)))
+            }
     }
 
-    object Live : BlaseballEventsStreamDataEndpoint {
+    data class Live(val transformers: List<JsonTransformer> = emptyList()) : BlaseballEventsStreamDataEndpoint {
         override suspend fun setupFlow(league: BlasementLeague): SharedFlow<String> {
             val session = league.httpClient.webSocketSession {
                 url("wss://api.sibr.dev/corsmechanics/www.blaseball.com/events/streamSocket")
-
-                println(url.protocol)
             }
 
             return session.incoming
                 .consumeAsFlow()
-                .mapNotNull { frame -> (frame as? Frame.Text)?.readText() }
+                .mapNotNull { frame -> transformers((frame as? Frame.Text)?.readText()?.let(json::parseToJsonElement) ?: JsonNull).toString() }
                 .onCompletion { session.close() }
                 .shareIn(session, SharingStarted.Eagerly, 1)
         }
 
-        override fun describe(): JsonElement? =
-            JsonPrimitive("live")
+        override fun describe(): JsonElement =
+            buildJsonObject {
+                put("type", "live")
+                put("transformers", JsonArray(transformers.map(JsonTransformer::describe)))
+            }
     }
 
-    data class ChroniclerAtTime(val clock: BlasementClock) : BlaseballEventsStreamDataEndpoint {
+    data class ChroniclerAtTime(val clock: BlasementClock, val transformers: List<JsonTransformer> = emptyList()) : BlaseballEventsStreamDataEndpoint {
         @OptIn(ExperimentalTime::class)
         override suspend fun setupFlow(league: BlasementLeague): SharedFlow<String> =
             flow<String> {
@@ -199,7 +205,7 @@ interface BlaseballEventsStreamDataEndpoint : BlaseballEndpoint {
                         ?.getJsonObjectOrNull("value")
                         ?.forEach { (k, v) -> core[k] = v }
 
-                    emit(stream.deepSort().toString())
+                    emit(transformers(stream.deepSort()).toString())
                 }
             }.shareIn(league, SharingStarted.Eagerly, 1)
 
@@ -207,18 +213,19 @@ interface BlaseballEventsStreamDataEndpoint : BlaseballEndpoint {
             buildJsonObject {
                 put("type", "chronicler_at_time")
                 put("clock", clock.describe() ?: JsonNull)
+                put("transformers", JsonArray(transformers.map(JsonTransformer::describe)))
             }
     }
 
-    data class Static(var data: JsonElement?, var index: Int = 0, val loopOnCompletion: Boolean = false) : BlaseballEventsStreamDataEndpoint, BlaseballUpdatableEndpoint {
+    data class Static(var data: JsonElement?, var index: Int = 0, val loopOnCompletion: Boolean = false, val transformers: List<JsonTransformer> = emptyList()) : BlaseballEventsStreamDataEndpoint, BlaseballUpdatableEndpoint {
         override suspend fun setupFlow(league: BlasementLeague): SharedFlow<String> =
-            flow {
+            flow<String> {
                 loopEvery(league.clock.eventStreamUpdateTime, { currentCoroutineContext().isActive }) {
                     data.let {
                         if (it is JsonArray) {
-                            emit(it.getOrNull(if (loopOnCompletion) index++ % it.size else index++)?.deepSort()?.toString() ?: return@loopEvery)
+                            emit(it.getOrNull(if (loopOnCompletion) index++ % it.size else index++)?.deepSort()?.let(transformers::invoke)?.toString() ?: return@loopEvery)
                         } else {
-                            emit(it?.deepSort()?.toString() ?: return@loopEvery)
+                            emit(it?.deepSort()?.let(transformers::invoke)?.toString() ?: return@loopEvery)
                         }
                     }
                 }
@@ -277,7 +284,7 @@ interface BlaseballEventsStreamDataEndpoint : BlaseballEndpoint {
                             if (fold) {
                                 it.lastOrNull()?.mergeWith(newData ?: JsonNull) ?: newData
                             } else {
-                               newData
+                                newData
                             }
                         }
                     } else if (newData is JsonArray) {
@@ -288,7 +295,7 @@ interface BlaseballEventsStreamDataEndpoint : BlaseballEndpoint {
                         } else {
                             newData
                         }
-                    } else if (fold ){
+                    } else if (fold) {
                         it?.mergeWith(newData ?: JsonNull)
                     } else {
                         newData
@@ -380,6 +387,7 @@ interface BlaseballEventsStreamDataEndpoint : BlaseballEndpoint {
                 put("data", data ?: JsonNull)
                 put("index", if (loopOnCompletion) index % ((data as? JsonArray)?.size ?: 1) else index.coerceAtMost((data as? JsonArray)?.size ?: 1))
                 put("loop_on_completion", loopOnCompletion)
+                put("transformers", JsonArray(transformers.map(JsonTransformer::describe)))
             }
     }
 
@@ -442,19 +450,22 @@ interface BlaseballEventsStreamDataEndpoint : BlaseballEndpoint {
             return KorneaResult.successPooled(
                 when (config) {
                     JsonNull -> null
-                    null -> Chronicler
+                    null -> Chronicler(emptyList())
                     is JsonPrimitive ->
                         when (val type = config.contentOrNull?.lowercase(Locale.getDefault())) {
-                            "chronicler" -> Chronicler
-                            "live" -> Live
+                            "chronicler" -> Chronicler(emptyList())
+                            "live" -> Live(emptyList())
                             else -> return KorneaResult.errorAsIllegalArgument(-1, "Unknown endpoint string '$type'")
                         }
                     is JsonObject ->
                         when (val type = config.getStringOrNull("type")?.lowercase(Locale.getDefault())) {
-                            "chronicler" -> Chronicler
-                            "chronicler_at_time" -> ChroniclerAtTime(BlasementClock.loadFrom(config["clock"], System.currentTimeMillis(), Clock.systemUTC()).getOrBreak { return it.cast() })
-                            "live" -> Live
-                            "static" -> Static(config["data"], config.getIntOrNull("index") ?: 0, config.getBooleanOrNull("loop_on_completion") ?: false)
+                            "chronicler" -> Chronicler(JsonTransformer loadAllFrom config.getJsonArrayOrNull("transformers"))
+                            "chronicler_at_time" -> ChroniclerAtTime(
+                                BlasementClock.loadFrom(config["clock"], System.currentTimeMillis(), Clock.systemUTC()).getOrBreak { return it.cast() },
+                                JsonTransformer loadAllFrom config.getJsonArrayOrNull("transformers")
+                            )
+                            "live" -> Live(JsonTransformer loadAllFrom config.getJsonArrayOrNull("transformers"))
+                            "static" -> Static(config["data"], config.getIntOrNull("index") ?: 0, config.getBooleanOrNull("loop_on_completion") ?: false, JsonTransformer loadAllFrom config.getJsonArrayOrNull("transformers"))
                             else -> return KorneaResult.errorAsIllegalArgument(-1, "Unknown type '$type'")
                         }
                     else -> return KorneaResult.errorAsIllegalArgument(-1, "Unknown endpoint object '$config'")

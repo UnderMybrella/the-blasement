@@ -42,7 +42,7 @@ This is an instance that runs with live data on all endpoints.
 ```
 
 ## [The Expansion Era](https://blasement.brella.dev/leagues/expansion)
-The [Expansion Era](https://www.blaseball.wiki/w/Expansion_Era) runs from Season 12. As of writing, it has not stopped.
+The [Expansion Era](https://www.blaseball.wiki/w/Expansion_Era) runs from Season 12 to Season 24.
 
 ```json
 {
