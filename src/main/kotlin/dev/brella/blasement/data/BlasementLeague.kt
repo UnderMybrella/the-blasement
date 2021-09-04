@@ -67,6 +67,10 @@ data class BlasementLeague(
     val clock: BlasementClock,
     val siteDataClock: BlasementClock = clock,
 
+    val liveBaseUrl: String = "https://www.blaseball.com",
+    val chroniclerBaseUrl: String = "https://api.sibr.dev/chronicler",
+    val upnutsBaseUrl: String = "https://api.sibr.dev/upnuts",
+
     /* Api */
     val apiGetUser: BlaseballApiGetUserEndpoint? = null,
     val apiGetUserRewards: BlaseballApiGetUserRewardsEndpoint? = null,
@@ -124,6 +128,11 @@ data class BlasementLeague(
         const val LEAGUE_ID = "league_id"
         const val VISIBILITY = "visibility"
 
+        const val DEFAULTS = "defaults"
+        const val API_DEFAULTS = "apiDefaults"
+        const val FEED_DEFAULTS = "databaseFeedDefaults"
+        const val DATABASE_DEFAULTS = "databaseDefaults"
+
         const val CLOCK = "clock"
         const val API_GET_USER = "apiGetUser"
         const val API_GET_USER_REWARDS = "apiGetUserRewards"
@@ -177,8 +186,6 @@ data class BlasementLeague(
     }
 
     override val coroutineContext: CoroutineContext = SupervisorJob()
-    val liveBaseUrl = "https://www.blaseball.com"
-    val chroniclerBaseUrl = "https://api.sibr.dev/chronicler"
 
     val siteData = BlasementSiteData(
         httpClient, indexHtmlTransformers = listOf(

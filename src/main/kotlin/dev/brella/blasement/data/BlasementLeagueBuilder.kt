@@ -100,6 +100,10 @@ class BlasementLeagueBuilder {
     lateinit var clock: BlasementClock
     var siteDataClock: BlasementClock? = null
 
+    var liveBaseUrl: String = "https://www.blaseball.com"
+    var chroniclerBaseUrl: String = "https://api.sibr.dev/chronicler"
+    var upnutsBaseUrl: String = "https://api.sibr.dev/upnuts"
+
     lateinit var visibilityStatus: EnumVisibilityStatus
     lateinit var authentication: String
 
@@ -114,6 +118,10 @@ class BlasementLeagueBuilder {
 
             clock = clock,
             siteDataClock = siteDataClock ?: clock,
+
+            liveBaseUrl = liveBaseUrl.trimEnd('/'),
+            chroniclerBaseUrl = chroniclerBaseUrl.trimEnd('/'),
+            upnutsBaseUrl = upnutsBaseUrl.trimEnd('/'),
 
             apiGetUser = api.getUser,
             apiGetUserRewards = api.getUserRewards,

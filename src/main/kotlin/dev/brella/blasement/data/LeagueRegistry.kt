@@ -1,5 +1,6 @@
 package dev.brella.blasement.data
 
+import dev.brella.blasement.data.BlasementLeague.Companion.API_DEFAULTS
 import dev.brella.blasement.data.BlasementLeague.Companion.API_GET_ACTIVE_BETS
 import dev.brella.blasement.data.BlasementLeague.Companion.API_GET_IDOLS
 import dev.brella.blasement.data.BlasementLeague.Companion.API_GET_RISING_STARS
@@ -12,6 +13,7 @@ import dev.brella.blasement.data.BlasementLeague.Companion.DATABASE_ALL_TEAMS
 import dev.brella.blasement.data.BlasementLeague.Companion.DATABASE_BONUS_RESULTS
 import dev.brella.blasement.data.BlasementLeague.Companion.DATABASE_COMMUNITY_CHEST_PROGRESS
 import dev.brella.blasement.data.BlasementLeague.Companion.DATABASE_DECREE_RESULTS
+import dev.brella.blasement.data.BlasementLeague.Companion.DATABASE_DEFAULTS
 import dev.brella.blasement.data.BlasementLeague.Companion.DATABASE_EVENT_RESULTS
 import dev.brella.blasement.data.BlasementLeague.Companion.DATABASE_FEED_BY_PHASE
 import dev.brella.blasement.data.BlasementLeague.Companion.DATABASE_GAME_BY_ID
@@ -38,7 +40,9 @@ import dev.brella.blasement.data.BlasementLeague.Companion.DATABASE_TEAM
 import dev.brella.blasement.data.BlasementLeague.Companion.DATABASE_TEAM_ELECTION_STATS
 import dev.brella.blasement.data.BlasementLeague.Companion.DATABASE_TEAM_FEED
 import dev.brella.blasement.data.BlasementLeague.Companion.DATABASE_VAULT
+import dev.brella.blasement.data.BlasementLeague.Companion.DEFAULTS
 import dev.brella.blasement.data.BlasementLeague.Companion.EVENTS_STREAM_DATA
+import dev.brella.blasement.data.BlasementLeague.Companion.FEED_DEFAULTS
 import dev.brella.blasement.data.BlasementLeague.Companion.LEAGUE_ID
 import dev.brella.blasement.data.BlasementLeague.Companion.VISIBILITY
 import dev.brella.blasement.endpoints.BlaseballEndpoint
@@ -50,8 +54,10 @@ import dev.brella.blasement.endpoints.api.BlaseballApiGetTributesEndpoint
 import dev.brella.blasement.endpoints.api.BlaseballApiGetUserEndpoint
 import dev.brella.blasement.endpoints.api.BlaseballApiGetUserRewardsEndpoint
 import dev.brella.blasement.endpoints.database.*
+import dev.brella.blasement.getJsonObjectOrNull
 import dev.brella.blasement.getStringOrNull
 import dev.brella.blasement.getValue
+import dev.brella.blasement.mergeJsonConfigs
 import dev.brella.blasement.respondJsonObject
 import dev.brella.kornea.errors.common.KorneaResult
 import dev.brella.kornea.errors.common.cast
@@ -175,162 +181,174 @@ class LeagueRegistry(val json: Json, val httpClient: HttpClient, datablaseConfig
                             .consumeOnSuccessGetOrBreak { return it.cast() }
                     }
 
+                config.getStringOrNull("liveBaseUrl")
+                    ?.let { this.liveBaseUrl = it }
+                config.getStringOrNull("chroniclerBaseUrl")
+                    ?.let { this.chroniclerBaseUrl = it }
+                config.getStringOrNull("upnutsBaseUrl")
+                    ?.let { this.upnutsBaseUrl = it }
+
+                val defaults = config[DEFAULTS]
+                val apiDefaults = config[API_DEFAULTS]
+                val databaseDefaults = config[DATABASE_DEFAULTS]
+                val databaseFeedDefaults = config[FEED_DEFAULTS]
+
                 api {
                     getActiveBets = BlaseballApiGetActiveBetsEndpoint
-                        .loadFrom(config[API_GET_ACTIVE_BETS])
+                        .loadFrom(mergeJsonConfigs(config[API_GET_ACTIVE_BETS], apiDefaults, defaults))
                         .consumeOnSuccessGetOrBreak { return it.cast() }
 
                     getIdols = BlaseballApiGetIdolsEndpoint
-                        .loadFrom(config[API_GET_IDOLS])
+                        .loadFrom(mergeJsonConfigs(config[API_GET_IDOLS], apiDefaults, defaults))
                         .consumeOnSuccessGetOrBreak { return it.cast() }
 
                     getRisingStars = BlaseballApiGetRisingStarsEndpoint
-                        .loadFrom(config[API_GET_RISING_STARS])
+                        .loadFrom(mergeJsonConfigs(config[API_GET_RISING_STARS], apiDefaults, defaults))
                         .consumeOnSuccessGetOrBreak { return it.cast() }
 
                     getTribute = BlaseballApiGetTributesEndpoint
-                        .loadFrom(config[API_GET_TRIBUTES])
+                        .loadFrom(mergeJsonConfigs(config[API_GET_TRIBUTES], apiDefaults, defaults))
                         .consumeOnSuccessGetOrBreak { return it.cast() }
 
                     getUser = BlaseballApiGetUserEndpoint
-                        .loadFrom(config[API_GET_USER])
+                        .loadFrom(mergeJsonConfigs(config[API_GET_USER], apiDefaults, defaults))
                         .consumeOnSuccessGetOrBreak { return it.cast() }
 
                     getUserRewards = BlaseballApiGetUserRewardsEndpoint
-                        .loadFrom(config[API_GET_USER_REWARDS])
+                        .loadFrom(mergeJsonConfigs(config[API_GET_USER_REWARDS], apiDefaults, defaults))
                         .consumeOnSuccessGetOrBreak { return it.cast() }
                 }
 
                 database {
                     feed {
                         global = BlaseballDatabaseFeedEndpoint
-                            .loadGlobalFrom(config[DATABASE_GLOBAL_FEED])
+                            .loadGlobalFrom(mergeJsonConfigs(config[DATABASE_GLOBAL_FEED], databaseFeedDefaults, databaseDefaults, defaults))
                             .consumeOnSuccessGetOrBreak { return it.cast() }
 
                         game = BlaseballDatabaseFeedEndpoint
-                            .loadGameFrom(config[DATABASE_GAME_FEED])
+                            .loadGameFrom(mergeJsonConfigs(config[DATABASE_GAME_FEED], databaseFeedDefaults, databaseDefaults, defaults))
                             .consumeOnSuccessGetOrBreak { return it.cast() }
 
                         player = BlaseballDatabaseFeedEndpoint
-                            .loadPlayerFrom(config[DATABASE_PLAYER_FEED])
+                            .loadPlayerFrom(mergeJsonConfigs(config[DATABASE_PLAYER_FEED], databaseFeedDefaults, databaseDefaults, defaults))
                             .consumeOnSuccessGetOrBreak { return it.cast() }
 
                         team = BlaseballDatabaseFeedEndpoint
-                            .loadTeamFrom(config[DATABASE_TEAM_FEED])
+                            .loadTeamFrom(mergeJsonConfigs(config[DATABASE_TEAM_FEED], databaseFeedDefaults, databaseDefaults, defaults))
                             .consumeOnSuccessGetOrBreak { return it.cast() }
 
                         story = BlaseballDatabaseFeedEndpoint
-                            .loadStoryFrom(config[DATABASE_STORY_FEED])
+                            .loadStoryFrom(mergeJsonConfigs(config[DATABASE_STORY_FEED], databaseFeedDefaults, databaseDefaults, defaults))
                             .consumeOnSuccessGetOrBreak { return it.cast() }
                     }
 
                     allDivisions = BlaseballDatabaseAllDivisionsEndpoint
-                        .loadFrom(config[DATABASE_ALL_DIVISIONS])
+                        .loadFrom(mergeJsonConfigs(config[DATABASE_ALL_DIVISIONS], databaseDefaults, defaults))
                         .consumeOnSuccessGetOrBreak { return it.cast() }
 
                     allTeams = BlaseballDatabaseAllTeamsEndpoint
-                        .loadFrom(config[DATABASE_ALL_TEAMS])
+                        .loadFrom(mergeJsonConfigs(config[DATABASE_ALL_TEAMS], databaseDefaults, defaults))
                         .consumeOnSuccessGetOrBreak { return it.cast() }
 
                     communityChestProgress = BlaseballDatabaseCommunityChestProgressEndpoint
-                        .loadFrom(config[DATABASE_COMMUNITY_CHEST_PROGRESS])
+                        .loadFrom(mergeJsonConfigs(config[DATABASE_COMMUNITY_CHEST_PROGRESS], databaseDefaults, defaults))
                         .consumeOnSuccessGetOrBreak { return it.cast() }
 
                     bonusResults = BlaseballDatabaseBonusResultsEndpoint
-                        .loadFrom(config[DATABASE_BONUS_RESULTS])
+                        .loadFrom(mergeJsonConfigs(config[DATABASE_BONUS_RESULTS], databaseDefaults, defaults))
                         .consumeOnSuccessGetOrBreak { return it.cast() }
 
                     decreeResults = BlaseballDatabaseDecreeResultsEndpoint
-                        .loadFrom(config[DATABASE_DECREE_RESULTS])
+                        .loadFrom(mergeJsonConfigs(config[DATABASE_DECREE_RESULTS], databaseDefaults, defaults))
                         .consumeOnSuccessGetOrBreak { return it.cast() }
 
                     eventResults = BlaseballDatabaseEventResultsEndpoint
-                        .loadFrom(config[DATABASE_EVENT_RESULTS])
+                        .loadFrom(mergeJsonConfigs(config[DATABASE_EVENT_RESULTS], databaseDefaults, defaults))
                         .consumeOnSuccessGetOrBreak { return it.cast() }
 
                     feedByPhase = BlaseballDatabaseFeedByPhaseEndpoint
-                        .loadFrom(config[DATABASE_FEED_BY_PHASE])
+                        .loadFrom(mergeJsonConfigs(config[DATABASE_FEED_BY_PHASE], databaseDefaults, defaults))
                         .consumeOnSuccessGetOrBreak { return it.cast() }
 
                     gameById = BlaseballDatabaseGameByIdEndpoint
-                        .loadFrom(config[DATABASE_GAME_BY_ID])
+                        .loadFrom(mergeJsonConfigs(config[DATABASE_GAME_BY_ID], databaseDefaults, defaults))
                         .consumeOnSuccessGetOrBreak { return it.cast() }
 
                     getPreviousChamp = BlaseballDatabaseGetPreviousChampEndpoint
-                        .loadFrom(config[DATABASE_GET_PREVIOUS_CHAMP])
+                        .loadFrom(mergeJsonConfigs(config[DATABASE_GET_PREVIOUS_CHAMP], databaseDefaults, defaults))
                         .consumeOnSuccessGetOrBreak { return it.cast() }
 
                     giftProgress = BlaseballDatabaseGiftProgressEndpoint
-                        .loadFrom(config[DATABASE_GIFT_PROGRESS])
+                        .loadFrom(mergeJsonConfigs(config[DATABASE_GIFT_PROGRESS], databaseDefaults, defaults))
                         .consumeOnSuccessGetOrBreak { return it.cast() }
 
                     globalEvents = BlaseballDatabaseGlobalEventsEndpoint
-                        .loadFrom(config[DATABASE_GLOBAL_EVENTS])
+                        .loadFrom(mergeJsonConfigs(config[DATABASE_GLOBAL_EVENTS], databaseDefaults, defaults))
                         .consumeOnSuccessGetOrBreak { return it.cast() }
 
                     items = BlaseballDatabaseItemsEndpoint
-                        .loadFrom(config[DATABASE_ITEMS])
+                        .loadFrom(mergeJsonConfigs(config[DATABASE_ITEMS], databaseDefaults, defaults))
                         .consumeOnSuccessGetOrBreak { return it.cast() }
 
                     offseasonRecap = BlaseballDatabaseOffseasonRecapEndpoint
-                        .loadFrom(config[DATABASE_OFFSEASON_RECAP])
+                        .loadFrom(mergeJsonConfigs(config[DATABASE_OFFSEASON_RECAP], databaseDefaults, defaults))
                         .consumeOnSuccessGetOrBreak { return it.cast() }
 
                     offseasonSetup = BlaseballDatabaseOffseasonSetupEndpoint
-                        .loadFrom(config[DATABASE_OFFSEASON_SETUP])
+                        .loadFrom(mergeJsonConfigs(config[DATABASE_OFFSEASON_SETUP], databaseDefaults, defaults))
                         .consumeOnSuccessGetOrBreak { return it.cast() }
 
                     playerNamesIds = BlaseballDatabasePlayerNamesEndpoint
-                        .loadFrom(config[DATABASE_PLAYER_NAMES_AND_IDS])
+                        .loadFrom(mergeJsonConfigs(config[DATABASE_PLAYER_NAMES_AND_IDS], databaseDefaults, defaults))
                         .consumeOnSuccessGetOrBreak { return it.cast() }
 
                     players = BlaseballDatabasePlayersEndpoint
-                        .loadFrom(config[DATABASE_PLAYERS])
+                        .loadFrom(mergeJsonConfigs(config[DATABASE_PLAYERS], databaseDefaults, defaults))
                         .consumeOnSuccessGetOrBreak { return it.cast() }
 
                     playersByItemId = BlaseballDatabasePlayersByItemEndpoint
-                        .loadFrom(config[DATABASE_PLAYERS_BY_ITEM_ID])
+                        .loadFrom(mergeJsonConfigs(config[DATABASE_PLAYERS_BY_ITEM_ID], databaseDefaults, defaults))
                         .consumeOnSuccessGetOrBreak { return it.cast() }
 
                     playoffs = BlaseballDatabasePlayoffsEndpoint
-                        .loadFrom(config[DATABASE_PLAYOFFS])
+                        .loadFrom(mergeJsonConfigs(config[DATABASE_PLAYOFFS], databaseDefaults, defaults))
                         .consumeOnSuccessGetOrBreak { return it.cast() }
 
                     renovationProgress = BlaseballDatabaseRenovationProgressEndpoint
-                        .loadFrom(config[DATABASE_RENOVATION_PROGRESS])
+                        .loadFrom(mergeJsonConfigs(config[DATABASE_RENOVATION_PROGRESS], databaseDefaults, defaults))
                         .consumeOnSuccessGetOrBreak { return it.cast() }
 
                     renovations = BlaseballDatabaseRenovationsEndpoint
-                        .loadFrom(config[DATABASE_RENOVATIONS])
+                        .loadFrom(mergeJsonConfigs(config[DATABASE_RENOVATIONS], databaseDefaults, defaults))
                         .consumeOnSuccessGetOrBreak { return it.cast() }
 
                     shopSetup = BlaseballDatabaseShopSetupEndpoint
-                        .loadFrom(config[DATABASE_SHOP_SETUP])
+                        .loadFrom(mergeJsonConfigs(config[DATABASE_SHOP_SETUP], databaseDefaults, defaults))
                         .consumeOnSuccessGetOrBreak { return it.cast() }
 
                     subleague = BlaseballDatabaseSubleagueEndpoint
-                        .loadFrom(config[DATABASE_SUBLEAGUE])
+                        .loadFrom(mergeJsonConfigs(config[DATABASE_SUBLEAGUE], databaseDefaults, defaults))
                         .consumeOnSuccessGetOrBreak { return it.cast() }
 
                     sunSun = BlaseballDatabaseSunSunEndpoint
-                        .loadFrom(config[DATABASE_SUN_SUN])
+                        .loadFrom(mergeJsonConfigs(config[DATABASE_SUN_SUN], databaseDefaults, defaults))
                         .consumeOnSuccessGetOrBreak { return it.cast() }
 
                     team = BlaseballDatabaseTeamEndpoint
-                        .loadFrom(config[DATABASE_TEAM])
+                        .loadFrom(mergeJsonConfigs(config[DATABASE_TEAM], databaseDefaults, defaults))
                         .consumeOnSuccessGetOrBreak { return it.cast() }
 
                     teamElectionStats = BlaseballDatabaseTeamElectionStatsEndpoint
-                        .loadFrom(config[DATABASE_TEAM_ELECTION_STATS])
+                        .loadFrom(mergeJsonConfigs(config[DATABASE_TEAM_ELECTION_STATS], databaseDefaults, defaults))
                         .consumeOnSuccessGetOrBreak { return it.cast() }
 
                     vault = BlaseballDatabaseVaultEndpoint
-                        .loadFrom(config[DATABASE_VAULT])
+                        .loadFrom(mergeJsonConfigs(config[DATABASE_VAULT], databaseDefaults, defaults))
                         .consumeOnSuccessGetOrBreak { return it.cast() }
                 }
 
                 eventsStreamData = BlaseballEventsStreamDataEndpoint
-                    .loadFrom(config[EVENTS_STREAM_DATA])
+                    .loadFrom(mergeJsonConfigs(config[EVENTS_STREAM_DATA], defaults))
                     .consumeOnSuccessGetOrBreak { return it.cast() }
             }
         )

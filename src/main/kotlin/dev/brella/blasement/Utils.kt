@@ -143,3 +143,18 @@ public inline fun <reified T> Row.get(name: String): T? =
 
 public inline fun <reified T> Row.getValue(name: String): T =
     get(name, T::class.java)
+
+public fun mergeJsonConfigs(vararg config: JsonElement?): JsonElement? {
+    if (config.isEmpty()) return null
+    val base = config[0]?.let { if (it !is JsonObject) return it else it.toMutableMap() } ?: HashMap()
+
+    config.drop(1).forEach { new ->
+        when (new) {
+            is JsonObject -> new.forEach { (k, v) -> base.putIfAbsent(k, v) }
+            null -> {}
+            else -> base.putIfAbsent("type", new)
+        }
+    }
+
+    return JsonObject(base)
+}
