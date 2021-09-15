@@ -196,7 +196,7 @@ data class BlasementLeague(
             SiteTransformer.InitialTextTransformer.AddNewBeingsJs,
             SiteTransformer.InitialTextTransformer.AllowCustomEmojis,
 
-            SiteTransformer.FinalTextTransformer.ReplaceTimeWithWebsocket("/leagues/$leagueID"),
+            SiteTransformer.FinalTextTransformer.ReplaceDateWithCursedTimeWebsocket("/leagues/$leagueID"),
         ),
         twoJsTransformers = listOf(),
         mainCssTransformers = listOf(

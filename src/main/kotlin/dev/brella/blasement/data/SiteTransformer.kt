@@ -163,11 +163,53 @@ sealed interface SiteTransformer {
     }
 
     fun interface FinalTextTransformer : SiteTransformer {
-        data class ReplaceTimeWithWebsocket(val basePath: String) : FinalTextTransformer {
+        data class ReplaceDateWithRegexTimeWebsocket(val basePath: String) : FinalTextTransformer {
             override fun transform(data: String): String =
                 data.replace("new Date()", "time()")
                     .replace("new Date([^(])".toRegex()) { match -> "time()${match.groupValues[1]}" }
                     .plus(";let loc=window.location,new_uri;const source=new WebSocket((loc.protocol === \"https:\"?\"wss://\":\"ws://\")+loc.host+\"$basePath/api/time\");source.addEventListener('message',function(event){window.blasementTime=event.data});function time(){return window.blasementTime?new Date(parseInt(window.blasementTime)):new Date();}")
+        }
+
+        data class ReplaceDateWithCursedTimeWebsocket(val basePath: String): FinalTextTransformer {
+            override fun transform(data: String): String =
+                data.plus(""";
+                    let loc=window.location,new_uri;
+                    const source=new WebSocket((loc.protocol === "https:"?"wss://":"ws://")+loc.host+"$basePath/api/time");
+                    source.addEventListener('message',function(event){window.blasementTime=event.data});
+                    
+                    //credits to allie
+                    const CurrentDate = Date;
+
+                    // cursed glue
+                    var bind = Function.bind;
+                    var unbind = bind.bind(bind);
+            
+                    function instantiate(constructor, args) {
+                        return new (unbind(constructor, null).apply(null, args));
+                    }
+            
+                    // trickery
+                    Date = function(Date) {
+                        for (var n of Object.getOwnPropertyNames(Date)) {
+                            if (n in TrickeryDate) continue;
+            
+                            let desc = Object.getOwnPropertyDescriptor(Date,n);
+                            Object.defineProperty(TrickeryDate,n,desc);
+                        }
+            
+                        return TrickeryDate;
+            
+                        function TrickeryDate() {
+                            if (arguments.length > 0) {
+                                return instantiate(CurrentDate,arguments);
+                            }
+            
+                            var date = instantiate(CurrentDate,arguments);
+                            date = instantiate(CurrentDate,[parseInt(window.blasementTime)]);
+                            return date;
+                        }
+                    }(Date);
+                """.trimIndent())
         }
 
         fun transform(data: String): String?

@@ -146,12 +146,14 @@ public inline fun <reified T> Row.getValue(name: String): T =
 
 public fun mergeJsonConfigs(vararg config: JsonElement?): JsonElement? {
     if (config.isEmpty()) return null
+    if (config.all { it == null }) return null
+
     val base = config[0]?.let { if (it !is JsonObject) return it else it.toMutableMap() } ?: HashMap()
 
     config.drop(1).forEach { new ->
         when (new) {
             is JsonObject -> new.forEach { (k, v) -> base.putIfAbsent(k, v) }
-            null -> {}
+            null, is JsonNull -> {}
             else -> base.putIfAbsent("type", new)
         }
     }
