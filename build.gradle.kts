@@ -12,7 +12,7 @@ plugins {
 }
 
 group = "dev.brella"
-version = "1.2.1"
+version = "1.2.2"
 application {
     mainClass.set("io.ktor.server.netty.EngineMain")
 }
